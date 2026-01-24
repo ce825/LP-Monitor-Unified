@@ -1,0 +1,41 @@
+name: Yes24 LP Monitor
+
+on:
+  schedule:
+    # 5분마다 실행 (GitHub Actions 최소 간격)
+    - cron: '*/5 * * * *'
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Restore product cache
+        uses: actions/cache@v4
+        with:
+          path: products.json
+          key: products-${{ github.run_id }}
+          restore-keys: products-
+
+      - name: Run monitor
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python monitor_actions.py
+
+      - name: Save product cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: products.json
+          key: products-${{ github.run_id }}
