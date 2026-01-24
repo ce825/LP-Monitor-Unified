@@ -29,9 +29,14 @@ jobs:
           restore-keys: products-
 
       - name: Run monitor
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: python monitor_actions.py
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python monitor_actions.py
 
       - name: Save product cache
         uses: actions/cache/save@v4
