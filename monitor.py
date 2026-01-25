@@ -2,22 +2,28 @@
 """
 Yes24 가요 LP 신상품 모니터링 스크립트
 새 상품이 등록되면 Discord로 알림을 보냅니다.
+Selenium을 사용하여 실제 브라우저처럼 동작합니다.
 """
 
 import requests
 from bs4 import BeautifulSoup
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+import time
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
 
 # 설정
-CATEGORY_URL = "https://www.yes24.com/Product/Category/Display/003001033001?pageNumber=1&pageSize=24&sortType=NEW"
+CATEGORY_URL = "https://www.yes24.com/Product/Category/Display/003001033001"
 DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1464577763527889137/crrzuov6ADoIoNcrJ5-jCK723zkXmjaKovNOL5WprbGlTVDjrhIKIJJcvr0RpkqDeOkx"
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "products.json")
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-}
 
 
 def load_saved_products():
@@ -35,15 +41,48 @@ def save_products(products):
 
 
 def fetch_products():
-    """Yes24에서 상품 목록 가져오기"""
+    """Selenium으로 Yes24에서 상품 목록 가져오기"""
+    driver = None
     try:
-        response = requests.get(CATEGORY_URL, headers=HEADERS, timeout=30)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
+        # Chrome 옵션 설정 (headless 모드)
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+        # WebDriver 시작
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+
+        # 페이지 로드
+        print(f"[{datetime.now()}] 페이지 로드 중...")
+        driver.get(CATEGORY_URL)
+
+        # 페이지 로드 대기
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+
+        # 신상품순 버튼 클릭
+        print(f"[{datetime.now()}] 신상품순 정렬 클릭...")
+        sort_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='RECENT']"))
+        )
+        sort_button.click()
+
+        # 정렬 후 상품 목록 갱신 대기
+        time.sleep(2)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+
+        # HTML 파싱
+        soup = BeautifulSoup(driver.page_source, "html.parser")
 
         products = {}
-
-        # 상품 목록 파싱 - li[data-goods-no] 선택자 사용
         goods_list = soup.select("li[data-goods-no]")
 
         for item in goods_list:
@@ -52,11 +91,11 @@ def fetch_products():
                 if not product_id:
                     continue
 
-                # 상품명 찾기 - a.gd_name
+                # 상품명 찾기
                 title_tag = item.select_one("a.gd_name")
                 title = title_tag.get_text(strip=True) if title_tag else ""
 
-                # 가격 찾기 - hidden input의 JSON 데이터에서 추출
+                # 가격 찾기
                 price = ""
                 price_input = item.select_one("input[name='ORD_GOODS_OPT']")
                 if price_input:
@@ -68,7 +107,6 @@ def fetch_products():
                     except:
                         pass
 
-                # 가격 태그에서도 시도
                 if not price:
                     price_tag = item.select_one("em.yes_b")
                     if price_tag:
@@ -93,9 +131,13 @@ def fetch_products():
                 continue
 
         return products
+
     except Exception as e:
         print(f"[{datetime.now()}] 상품 조회 실패: {e}")
         return None
+    finally:
+        if driver:
+            driver.quit()
 
 
 def send_discord_notification(new_products):
@@ -103,13 +145,13 @@ def send_discord_notification(new_products):
     for product_id, product in new_products.items():
         embed = {
             "embeds": [{
-                "title": f"🎵 새 LP 등록!",
+                "title": "🎵 새 LP 등록!",
                 "description": product["title"],
                 "url": product["url"],
                 "color": 0x00D4AA,
                 "fields": [],
                 "footer": {"text": "Yes24 가요 LP"},
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }]
         }
 
