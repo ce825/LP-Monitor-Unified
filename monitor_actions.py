@@ -1,25 +1,37 @@
 #!/usr/bin/env python3
 """
-Yes24 가요 LP 신상품 모니터링 스크립트 (GitHub Actions용)
-Selenium을 사용하여 실제 브라우저처럼 동작합니다.
+LP 신상품 모니터링 스크립트 (GitHub Actions용)
+Yes24 + Aladin을 모니터링합니다.
 """
 
 import requests
 from bs4 import BeautifulSoup
 import json
 import os
+import re
 from datetime import datetime, timezone
 import time
 
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # 설정
-CATEGORY_URL = "https://www.yes24.com/Product/Category/Display/003001033001"
+SITES = {
+    "yes24": {
+        "name": "Yes24",
+        "url": "https://www.yes24.com/Product/Category/Display/003001033001",
+        "color": 0x00D4AA,
+    },
+    "aladin": {
+        "name": "알라딘",
+        "url": "https://www.aladin.co.kr/shop/wbrowse.aspx?BrowseTarget=List&ViewRowsCount=25&ViewType=Detail&PublishMonth=0&SortOrder=6&page=1&Stockstatus=1&PublishDay=84&CID=86800&SearchOption=",
+        "color": 0x8B4513,
+    },
+}
+
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 DATA_FILE = "products.json"
 
@@ -27,8 +39,12 @@ DATA_FILE = "products.json"
 def load_saved_products():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+            data = json.load(f)
+            if data and not any(key in data for key in SITES.keys()):
+                print("데이터 형식 마이그레이션 중...")
+                return {"yes24": data, "aladin": {}}
+            return data
+    return {site: {} for site in SITES.keys()}
 
 
 def save_products(products):
@@ -36,51 +52,45 @@ def save_products(products):
         json.dump(products, f, ensure_ascii=False, indent=2)
 
 
-def fetch_products():
-    """Selenium으로 Yes24에서 상품 목록 가져오기"""
-    driver = None
+def create_driver():
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument(
+        "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+    return webdriver.Chrome(options=chrome_options)
+
+
+def fetch_yes24_products(driver):
     try:
-        # Chrome 옵션 설정 (headless 모드)
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1920,1080")
-        chrome_options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        url = SITES["yes24"]["url"]
+        print(f"[Yes24] 페이지 로드 중...")
+        driver.get(url)
 
-        # GitHub Actions에서는 chromedriver가 이미 설치되어 있음
-        driver = webdriver.Chrome(options=chrome_options)
-
-        # 페이지 로드
-        print(f"[{datetime.now()}] 페이지 로드 중...")
-        driver.get(CATEGORY_URL)
-
-        # 페이지 로드 대기
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
         )
 
-        # 신상품순 버튼 클릭
-        print(f"[{datetime.now()}] 신상품순 정렬 클릭...")
+        print(f"[Yes24] 신상품순 정렬 클릭...")
         sort_button = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='RECENT']"))
         )
         sort_button.click()
 
-        # 정렬 후 상품 목록 갱신 대기
         time.sleep(2)
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
         )
 
-        # HTML 파싱
         soup = BeautifulSoup(driver.page_source, "html.parser")
-
         products = {}
-        goods_list = soup.select("li[data-goods-no]")
 
-        for item in goods_list:
+        for item in soup.select("li[data-goods-no]"):
             try:
                 product_id = item.get("data-goods-no")
                 if not product_id:
@@ -117,7 +127,7 @@ def fetch_products():
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.yes24.com/Product/Goods/{product_id}",
-                        "image": img_url
+                        "image": img_url,
                     }
             except:
                 continue
@@ -125,37 +135,92 @@ def fetch_products():
         return products
 
     except Exception as e:
-        print(f"상품 조회 실패: {e}")
+        print(f"[Yes24] 상품 조회 실패: {e}")
         return None
-    finally:
-        if driver:
-            driver.quit()
 
 
-def send_discord_notification(new_products):
+def fetch_aladin_products(driver):
+    try:
+        url = SITES["aladin"]["url"]
+        print(f"[알라딘] 페이지 로드 중...")
+        driver.get(url)
+
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.ss_book_box"))
+        )
+
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        products = {}
+
+        for box in soup.select("div.ss_book_box"):
+            try:
+                title_link = box.select_one("a.bo3")
+                if not title_link:
+                    title_link = box.select_one('a[href*="ItemId="]')
+
+                if not title_link:
+                    continue
+
+                href = title_link.get("href", "")
+                match = re.search(r"ItemId=(\d+)", href)
+                if not match:
+                    continue
+
+                product_id = match.group(1)
+                title = title_link.get_text(strip=True)
+
+                price_tag = box.select_one("span.ss_p2")
+                price = price_tag.get_text(strip=True) if price_tag else ""
+
+                img_tag = box.select_one('img[src*="image.aladin.co.kr"]')
+                img_url = ""
+                if img_tag:
+                    img_url = img_tag.get("src", "")
+                    img_url = img_url.replace("coversum", "cover200")
+
+                if product_id and title:
+                    products[product_id] = {
+                        "title": title[:100],
+                        "price": price,
+                        "url": f"https://www.aladin.co.kr/shop/wproduct.aspx?ItemId={product_id}",
+                        "image": img_url,
+                    }
+            except:
+                continue
+
+        return products
+
+    except Exception as e:
+        print(f"[알라딘] 상품 조회 실패: {e}")
+        return None
+
+
+def send_discord_notification(site_key, new_products):
     if not DISCORD_WEBHOOK_URL:
         print("Discord webhook URL이 설정되지 않았습니다.")
         return
 
+    site = SITES[site_key]
+
     for product_id, product in new_products.items():
         embed = {
-            "embeds": [{
-                "title": "🎵 새 LP 등록!",
-                "description": product["title"],
-                "url": product["url"],
-                "color": 0x00D4AA,
-                "fields": [],
-                "footer": {"text": "Yes24 가요 LP"},
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }]
+            "embeds": [
+                {
+                    "title": f"🎵 새 LP 등록! [{site['name']}]",
+                    "description": product["title"],
+                    "url": product["url"],
+                    "color": site["color"],
+                    "fields": [],
+                    "footer": {"text": f"{site['name']} LP"},
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            ]
         }
 
         if product["price"]:
-            embed["embeds"][0]["fields"].append({
-                "name": "가격",
-                "value": product["price"],
-                "inline": True
-            })
+            embed["embeds"][0]["fields"].append(
+                {"name": "가격", "value": product["price"], "inline": True}
+            )
 
         if product["image"]:
             embed["embeds"][0]["thumbnail"] = {"url": product["image"]}
@@ -163,44 +228,67 @@ def send_discord_notification(new_products):
         try:
             response = requests.post(DISCORD_WEBHOOK_URL, json=embed, timeout=10)
             if response.status_code == 204:
-                print(f"알림 전송 완료: {product['title']}")
+                print(f"[{site['name']}] 알림 전송 완료: {product['title']}")
             else:
-                print(f"알림 전송 실패: {response.status_code}")
-            # Rate limit 방지
+                print(f"[{site['name']}] 알림 전송 실패: {response.status_code}")
             time.sleep(0.5)
         except Exception as e:
-            print(f"Discord 전송 오류: {e}")
+            print(f"[{site['name']}] Discord 전송 오류: {e}")
 
 
 def main():
-    print(f"[{datetime.now()}] Yes24 가요 LP 모니터링...")
+    print(f"[{datetime.now()}] LP 모니터링 (Yes24 + 알라딘)...")
 
     saved_products = load_saved_products()
-    current_products = fetch_products()
+    driver = None
 
-    if current_products is None:
-        print("상품 조회 실패")
-        return
+    try:
+        driver = create_driver()
 
-    print(f"조회된 상품: {len(current_products)}개")
+        fetch_functions = {
+            "yes24": fetch_yes24_products,
+            "aladin": fetch_aladin_products,
+        }
 
-    if not saved_products:
-        print("첫 실행 - 상품 목록 저장")
-        save_products(current_products)
-        return
+        is_first_run = all(not saved_products.get(site, {}) for site in SITES.keys())
+        total_new = 0
 
-    new_products = {
-        pid: prod for pid, prod in current_products.items()
-        if pid not in saved_products
-    }
+        for site_key, fetch_func in fetch_functions.items():
+            site = SITES[site_key]
+            current_products = fetch_func(driver)
 
-    if new_products:
-        print(f"새 상품 {len(new_products)}개 발견!")
-        send_discord_notification(new_products)
-        saved_products.update(current_products)
+            if current_products is None:
+                print(f"[{site['name']}] 상품 조회 실패")
+                continue
+
+            print(f"[{site['name']}] 조회된 상품: {len(current_products)}개")
+
+            site_saved = saved_products.get(site_key, {})
+
+            new_products = {
+                pid: prod
+                for pid, prod in current_products.items()
+                if pid not in site_saved
+            }
+
+            if new_products:
+                print(f"[{site['name']}] 새 상품 {len(new_products)}개 발견!")
+                if not is_first_run:
+                    send_discord_notification(site_key, new_products)
+                total_new += len(new_products)
+
+            saved_products[site_key] = {**site_saved, **current_products}
+
         save_products(saved_products)
-    else:
-        print("새 상품 없음")
+
+        if is_first_run:
+            print("첫 실행 - 상품 목록 저장 완료")
+        elif total_new == 0:
+            print("새 상품 없음")
+
+    finally:
+        if driver:
+            driver.quit()
 
 
 if __name__ == "__main__":
