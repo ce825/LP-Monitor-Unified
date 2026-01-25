@@ -1,6 +1,6 @@
 #!/Users/cehwang/miniconda3/bin/python3
 """
-LP 신상품 모니터링 스크립트 (Yes24 + Aladin)
+LP 신상품 모니터링 스크립트 (Yes24 + Aladin + Ktown4u)
 새 상품이 등록되면 Discord로 알림을 보냅니다.
 Selenium을 사용하여 실제 브라우저처럼 동작합니다.
 """
@@ -33,6 +33,11 @@ SITES = {
         "url": "https://www.aladin.co.kr/shop/wbrowse.aspx?BrowseTarget=List&ViewRowsCount=25&ViewType=Detail&PublishMonth=0&SortOrder=6&page=1&Stockstatus=1&PublishDay=84&CID=86800&SearchOption=",
         "color": 0x8B4513,  # 갈색
     },
+    "ktown4u": {
+        "name": "Ktown4u",
+        "url": "https://kr.ktown4u.com/searchList?goodsTextSearch=lp&goodsSearch=newgoods",
+        "color": 0xFF6B6B,  # 빨간색
+    },
 }
 
 DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1464577763527889137/crrzuov6ADoIoNcrJ5-jCK723zkXmjaKovNOL5WprbGlTVDjrhIKIJJcvr0RpkqDeOkx"
@@ -44,10 +49,14 @@ def load_saved_products():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # 기존 형식(사이트 구분 없음) -> 새 형식으로 마이그레이션
+            # 기존 형식 -> 새 형식으로 마이그레이션
             if data and not any(key in data for key in SITES.keys()):
                 print(f"[{datetime.now()}] 데이터 형식 마이그레이션 중...")
-                return {"yes24": data, "aladin": {}}
+                return {"yes24": data, "aladin": {}, "ktown4u": {}}
+            # 새 사이트 추가 시 키 초기화
+            for site_key in SITES.keys():
+                if site_key not in data:
+                    data[site_key] = {}
             return data
     return {site: {} for site in SITES.keys()}
 
@@ -61,18 +70,29 @@ def save_products(products):
 def create_driver():
     """Chrome WebDriver 생성"""
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument(
         "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
 
     service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=chrome_options)
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+
+    # navigator.webdriver 숨기기
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'},
+    )
+
+    return driver
 
 
 def fetch_yes24_products(driver):
@@ -166,7 +186,6 @@ def fetch_aladin_products(driver):
 
         for box in soup.select("div.ss_book_box"):
             try:
-                # 상품 링크에서 ID와 제목 추출
                 title_link = box.select_one("a.bo3")
                 if not title_link:
                     title_link = box.select_one('a[href*="ItemId="]')
@@ -182,11 +201,9 @@ def fetch_aladin_products(driver):
                 product_id = match.group(1)
                 title = title_link.get_text(strip=True)
 
-                # 가격 추출
                 price_tag = box.select_one("span.ss_p2")
                 price = price_tag.get_text(strip=True) if price_tag else ""
 
-                # 이미지 추출
                 img_tag = box.select_one('img[src*="image.aladin.co.kr"]')
                 img_url = ""
                 if img_tag:
@@ -207,6 +224,71 @@ def fetch_aladin_products(driver):
 
     except Exception as e:
         print(f"[{datetime.now()}] [알라딘] 상품 조회 실패: {e}")
+        return None
+
+
+def fetch_ktown4u_products(driver):
+    """Ktown4u에서 상품 목록 가져오기"""
+    try:
+        url = SITES["ktown4u"]["url"]
+        print(f"[{datetime.now()}] [Ktown4u] 페이지 로드 중...")
+        driver.get(url)
+
+        time.sleep(8)  # 동적 로딩 대기
+
+        # 스크롤해서 더 많은 상품 로드
+        for _ in range(5):
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1.5)
+
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        products = {}
+
+        # 상품 링크 찾기
+        product_links = soup.select('a[href*="/iteminfo?"]')
+
+        for link in product_links:
+            try:
+                href = link.get("href", "")
+                match = re.search(r"goods_no=(\d+)", href)
+                if not match:
+                    continue
+
+                product_id = match.group(1)
+                if product_id in products:
+                    continue
+
+                # 이미지와 제목 찾기
+                img = link.select_one("img")
+                if not img:
+                    continue
+
+                title = img.get("alt", "")
+                if not title or "LP" not in title.upper():
+                    continue
+
+                img_url = img.get("src", "")
+
+                # 가격 찾기
+                link_text = link.get_text()
+                price_match = re.search(r"KRW\s*([\d,]+)", link_text)
+                price = ""
+                if price_match:
+                    price = price_match.group(1) + "원"
+
+                products[product_id] = {
+                    "title": title[:100],
+                    "price": price,
+                    "url": f"https://kr.ktown4u.com/iteminfo?goods_no={product_id}",
+                    "image": img_url.replace("/thumbnail/", "/detail/") if img_url else "",
+                }
+            except:
+                continue
+
+        return products
+
+    except Exception as e:
+        print(f"[{datetime.now()}] [Ktown4u] 상품 조회 실패: {e}")
         return None
 
 
@@ -243,13 +325,13 @@ def send_discord_notification(site_key, new_products):
                 print(f"[{datetime.now()}] [{site['name']}] 알림 전송 완료: {product['title']}")
             else:
                 print(f"[{datetime.now()}] [{site['name']}] 알림 전송 실패: {response.status_code}")
-            time.sleep(0.5)  # Rate limit 방지
+            time.sleep(0.5)
         except Exception as e:
             print(f"[{datetime.now()}] [{site['name']}] Discord 전송 오류: {e}")
 
 
 def main():
-    print(f"[{datetime.now()}] LP 모니터링 시작 (Yes24 + 알라딘)...")
+    print(f"[{datetime.now()}] LP 모니터링 시작 (Yes24 + 알라딘 + Ktown4u)...")
 
     saved_products = load_saved_products()
     driver = None
@@ -257,10 +339,10 @@ def main():
     try:
         driver = create_driver()
 
-        # 각 사이트별로 처리
         fetch_functions = {
             "yes24": fetch_yes24_products,
             "aladin": fetch_aladin_products,
+            "ktown4u": fetch_ktown4u_products,
         }
 
         is_first_run = all(not saved_products.get(site, {}) for site in SITES.keys())
@@ -278,7 +360,6 @@ def main():
 
             site_saved = saved_products.get(site_key, {})
 
-            # 새 상품 찾기
             new_products = {
                 pid: prod
                 for pid, prod in current_products.items()
@@ -291,18 +372,15 @@ def main():
                     send_discord_notification(site_key, new_products)
                 total_new += len(new_products)
 
-            # 상품 목록 업데이트
             saved_products[site_key] = {**site_saved, **current_products}
 
-        # 저장
         save_products(saved_products)
 
         if is_first_run:
             print(f"[{datetime.now()}] 첫 실행 - 상품 목록 저장 완료")
-            # 테스트 메시지 전송
             total_count = sum(len(saved_products.get(s, {})) for s in SITES.keys())
             test_msg = {
-                "content": f"✅ LP 모니터링이 시작되었습니다! (Yes24 + 알라딘)\n현재 총 {total_count}개의 상품을 추적 중입니다."
+                "content": f"✅ LP 모니터링이 시작되었습니다! (Yes24 + 알라딘 + Ktown4u)\n현재 총 {total_count}개의 상품을 추적 중입니다."
             }
             try:
                 requests.post(DISCORD_WEBHOOK_URL, json=test_msg, timeout=10)

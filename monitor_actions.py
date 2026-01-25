@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LP 신상품 모니터링 스크립트 (GitHub Actions용)
-Yes24 + Aladin을 모니터링합니다.
+Yes24 + Aladin + Ktown4u를 모니터링합니다.
 """
 
 import requests
@@ -30,6 +30,11 @@ SITES = {
         "url": "https://www.aladin.co.kr/shop/wbrowse.aspx?BrowseTarget=List&ViewRowsCount=25&ViewType=Detail&PublishMonth=0&SortOrder=6&page=1&Stockstatus=1&PublishDay=84&CID=86800&SearchOption=",
         "color": 0x8B4513,
     },
+    "ktown4u": {
+        "name": "Ktown4u",
+        "url": "https://kr.ktown4u.com/searchList?goodsTextSearch=lp&goodsSearch=newgoods",
+        "color": 0xFF6B6B,
+    },
 }
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
@@ -42,7 +47,10 @@ def load_saved_products():
             data = json.load(f)
             if data and not any(key in data for key in SITES.keys()):
                 print("데이터 형식 마이그레이션 중...")
-                return {"yes24": data, "aladin": {}}
+                return {"yes24": data, "aladin": {}, "ktown4u": {}}
+            for site_key in SITES.keys():
+                if site_key not in data:
+                    data[site_key] = {}
             return data
     return {site: {} for site in SITES.keys()}
 
@@ -54,16 +62,25 @@ def save_products(products):
 
 def create_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument(
         "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
-    return webdriver.Chrome(options=chrome_options)
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+
+    driver = webdriver.Chrome(options=chrome_options)
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'},
+    )
+    return driver
 
 
 def fetch_yes24_products(driver):
@@ -195,6 +212,66 @@ def fetch_aladin_products(driver):
         return None
 
 
+def fetch_ktown4u_products(driver):
+    try:
+        url = SITES["ktown4u"]["url"]
+        print(f"[Ktown4u] 페이지 로드 중...")
+        driver.get(url)
+
+        time.sleep(8)
+
+        for _ in range(5):
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1.5)
+
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        products = {}
+
+        product_links = soup.select('a[href*="/iteminfo?"]')
+
+        for link in product_links:
+            try:
+                href = link.get("href", "")
+                match = re.search(r"goods_no=(\d+)", href)
+                if not match:
+                    continue
+
+                product_id = match.group(1)
+                if product_id in products:
+                    continue
+
+                img = link.select_one("img")
+                if not img:
+                    continue
+
+                title = img.get("alt", "")
+                if not title or "LP" not in title.upper():
+                    continue
+
+                img_url = img.get("src", "")
+
+                link_text = link.get_text()
+                price_match = re.search(r"KRW\s*([\d,]+)", link_text)
+                price = ""
+                if price_match:
+                    price = price_match.group(1) + "원"
+
+                products[product_id] = {
+                    "title": title[:100],
+                    "price": price,
+                    "url": f"https://kr.ktown4u.com/iteminfo?goods_no={product_id}",
+                    "image": img_url.replace("/thumbnail/", "/detail/") if img_url else "",
+                }
+            except:
+                continue
+
+        return products
+
+    except Exception as e:
+        print(f"[Ktown4u] 상품 조회 실패: {e}")
+        return None
+
+
 def send_discord_notification(site_key, new_products):
     if not DISCORD_WEBHOOK_URL:
         print("Discord webhook URL이 설정되지 않았습니다.")
@@ -237,7 +314,7 @@ def send_discord_notification(site_key, new_products):
 
 
 def main():
-    print(f"[{datetime.now()}] LP 모니터링 (Yes24 + 알라딘)...")
+    print(f"[{datetime.now()}] LP 모니터링 (Yes24 + 알라딘 + Ktown4u)...")
 
     saved_products = load_saved_products()
     driver = None
@@ -248,6 +325,7 @@ def main():
         fetch_functions = {
             "yes24": fetch_yes24_products,
             "aladin": fetch_aladin_products,
+            "ktown4u": fetch_ktown4u_products,
         }
 
         is_first_run = all(not saved_products.get(site, {}) for site in SITES.keys())
