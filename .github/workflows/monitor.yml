@@ -10,6 +10,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Debug trigger info
+        run: |
+          echo "🔔 Workflow triggered!"
+          echo "Event: ${{ github.event_name }}"
+          echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Run Number: ${{ github.run_number }}"
+
       - uses: actions/checkout@v4
 
       - name: Set up Python
