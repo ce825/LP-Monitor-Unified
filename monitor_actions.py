@@ -28,7 +28,7 @@ SITES = {
     "aladin": {
         "name": "알라딘",
         "url": "https://www.aladin.co.kr/shop/wbrowse.aspx?BrowseTarget=List&ViewRowsCount=25&ViewType=Detail&PublishMonth=0&SortOrder=6&page=1&Stockstatus=1&PublishDay=84&CID=86800&SearchOption=",
-        "color": 0x8B4513,
+        "color": 0xFFD700,  # 노란색 (골드)
     },
     "ktown4u": {
         "name": "Ktown4u",
