@@ -1,9 +1,7 @@
 name: Yes24 LP Monitor
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
+  workflow_dispatch:  # cron-job.org에서 트리거
 
 jobs:
   monitor:
