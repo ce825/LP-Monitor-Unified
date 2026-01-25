@@ -96,30 +96,13 @@ def create_driver():
 
 
 def fetch_yes24_products(driver):
-    """Yes24에서 상품 목록 가져오기"""
-    try:
-        url = SITES["yes24"]["url"]
-        print(f"[{datetime.now()}] [Yes24] 페이지 로드 중...")
-        driver.get(url)
+    """Yes24에서 상품 목록 가져오기 (신상품순 + 등록일순)"""
+    products = {}
 
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-        )
-
-        # 신상품순 정렬
-        print(f"[{datetime.now()}] [Yes24] 신상품순 정렬 클릭...")
-        sort_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='RECENT']"))
-        )
-        sort_button.click()
-
-        time.sleep(2)
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-        )
-
+    def parse_products_from_page():
+        """현재 페이지에서 상품 파싱"""
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        products = {}
+        page_products = {}
 
         for item in soup.select("li[data-goods-no]"):
             try:
@@ -163,7 +146,7 @@ def fetch_yes24_products(driver):
                 )
 
                 if product_id and title:
-                    products[product_id] = {
+                    page_products[product_id] = {
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.yes24.com/Product/Goods/{product_id}",
@@ -172,6 +155,53 @@ def fetch_yes24_products(driver):
                     }
             except:
                 continue
+
+        return page_products
+
+    try:
+        url = SITES["yes24"]["url"]
+        print(f"[{datetime.now()}] [Yes24] 페이지 로드 중...")
+        driver.get(url)
+
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+
+        # 1. 신상품순 정렬
+        print(f"[{datetime.now()}] [Yes24] 신상품순 정렬 클릭...")
+        sort_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='RECENT']"))
+        )
+        sort_button.click()
+
+        time.sleep(2)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+
+        recent_products = parse_products_from_page()
+        print(f"[{datetime.now()}] [Yes24] 신상품순: {len(recent_products)}개")
+        products.update(recent_products)
+
+        # 2. 등록일순 정렬
+        print(f"[{datetime.now()}] [Yes24] 등록일순 정렬 클릭...")
+        sort_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='NEW']"))
+        )
+        sort_button.click()
+
+        time.sleep(2)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+
+        new_products = parse_products_from_page()
+        print(f"[{datetime.now()}] [Yes24] 등록일순: {len(new_products)}개")
+
+        # 등록일순에서 새로 발견된 상품 추가
+        for pid, prod in new_products.items():
+            if pid not in products:
+                products[pid] = prod
 
         return products
 
