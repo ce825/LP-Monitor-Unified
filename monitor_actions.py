@@ -84,28 +84,13 @@ def create_driver():
 
 
 def fetch_yes24_products(driver):
-    try:
-        url = SITES["yes24"]["url"]
-        print(f"[Yes24] 페이지 로드 중...")
-        driver.get(url)
+    """Yes24에서 상품 목록 가져오기 (신상품순 + 등록일순)"""
+    products = {}
 
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-        )
-
-        print(f"[Yes24] 신상품순 정렬 클릭...")
-        sort_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='RECENT']"))
-        )
-        sort_button.click()
-
-        time.sleep(2)
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-        )
-
+    def parse_products_from_page():
+        """현재 페이지에서 상품 파싱"""
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        products = {}
+        page_products = {}
 
         for item in soup.select("li[data-goods-no]"):
             try:
@@ -149,7 +134,7 @@ def fetch_yes24_products(driver):
                 )
 
                 if product_id and title:
-                    products[product_id] = {
+                    page_products[product_id] = {
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.yes24.com/Product/Goods/{product_id}",
@@ -159,6 +144,53 @@ def fetch_yes24_products(driver):
             except:
                 continue
 
+        return page_products
+
+    try:
+        url = SITES["yes24"]["url"]
+        print(f"[Yes24] 페이지 로드 중...")
+        driver.get(url)
+
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+
+        # 1. 신상품순 정렬
+        print(f"[Yes24] 신상품순 정렬 클릭...")
+        sort_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='RECENT']"))
+        )
+        sort_button.click()
+
+        time.sleep(2)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+
+        recent_products = parse_products_from_page()
+        print(f"[Yes24] 신상품순: {len(recent_products)}개")
+        products.update(recent_products)
+
+        # 2. 등록일순 정렬
+        print(f"[Yes24] 등록일순 정렬 클릭...")
+        sort_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='NEW']"))
+        )
+        sort_button.click()
+
+        time.sleep(2)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+
+        new_products = parse_products_from_page()
+        print(f"[Yes24] 등록일순: {len(new_products)}개")
+
+        # 등록일순에서 새로 발견된 상품 추가
+        for pid, prod in new_products.items():
+            if pid not in products:
+                products[pid] = prod
+
         return products
 
     except Exception as e:
@@ -167,17 +199,13 @@ def fetch_yes24_products(driver):
 
 
 def fetch_aladin_products(driver):
-    try:
-        url = SITES["aladin"]["url"]
-        print(f"[알라딘] 페이지 로드 중...")
-        driver.get(url)
+    """알라딘에서 상품 목록 가져오기 (출시일순 + 등록일순)"""
+    products = {}
 
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.ss_book_box"))
-        )
-
+    def parse_products_from_page():
+        """현재 페이지에서 상품 파싱"""
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        products = {}
+        page_products = {}
 
         for box in soup.select("div.ss_book_box"):
             try:
@@ -210,7 +238,7 @@ def fetch_aladin_products(driver):
                 is_soldout = "품절" in box_text or "절판" in box_text
 
                 if product_id and title:
-                    products[product_id] = {
+                    page_products[product_id] = {
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.aladin.co.kr/shop/wproduct.aspx?ItemId={product_id}",
@@ -219,6 +247,39 @@ def fetch_aladin_products(driver):
                     }
             except:
                 continue
+
+        return page_products
+
+    try:
+        base_url = "https://www.aladin.co.kr/shop/wbrowse.aspx?BrowseTarget=List&ViewRowsCount=25&ViewType=Detail&PublishMonth=0&page=1&Stockstatus=1&PublishDay=84&CID=86800&SearchOption="
+
+        # 1. 출시일순 (SortOrder=5)
+        print(f"[알라딘] 출시일순 조회 중...")
+        driver.get(base_url + "&SortOrder=5")
+
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.ss_book_box"))
+        )
+
+        release_products = parse_products_from_page()
+        print(f"[알라딘] 출시일순: {len(release_products)}개")
+        products.update(release_products)
+
+        # 2. 등록일순 (SortOrder=6)
+        print(f"[알라딘] 등록일순 조회 중...")
+        driver.get(base_url + "&SortOrder=6")
+
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.ss_book_box"))
+        )
+
+        register_products = parse_products_from_page()
+        print(f"[알라딘] 등록일순: {len(register_products)}개")
+
+        # 등록일순에서 새로 발견된 상품 추가
+        for pid, prod in register_products.items():
+            if pid not in products:
+                products[pid] = prod
 
         return products
 
