@@ -153,12 +153,22 @@ def fetch_yes24_products(driver):
                     if img_url.startswith("//"):
                         img_url = "https:" + img_url
 
+                # 품절 여부 확인
+                item_text = item.get_text()
+                item_html = str(item).lower()
+                is_soldout = (
+                    "품절" in item_text
+                    or "soldout" in item_html
+                    or item.select_one('[class*="soldout"]') is not None
+                )
+
                 if product_id and title:
                     products[product_id] = {
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.yes24.com/Product/Goods/{product_id}",
                         "image": img_url,
+                        "soldout": is_soldout,
                     }
             except:
                 continue
@@ -210,12 +220,17 @@ def fetch_aladin_products(driver):
                     img_url = img_tag.get("src", "")
                     img_url = img_url.replace("coversum", "cover200")
 
+                # 품절 여부 확인
+                box_text = box.get_text()
+                is_soldout = "품절" in box_text or "절판" in box_text
+
                 if product_id and title:
                     products[product_id] = {
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.aladin.co.kr/shop/wproduct.aspx?ItemId={product_id}",
                         "image": img_url,
+                        "soldout": is_soldout,
                     }
             except:
                 continue
@@ -276,11 +291,15 @@ def fetch_ktown4u_products(driver):
                 if price_match:
                     price = price_match.group(1) + "원"
 
+                # 품절 여부 확인
+                is_soldout = "품절" in link_text
+
                 products[product_id] = {
                     "title": title[:100],
                     "price": price,
                     "url": f"https://kr.ktown4u.com/iteminfo?goods_no={product_id}",
                     "image": img_url.replace("/thumbnail/", "/detail/") if img_url else "",
+                    "soldout": is_soldout,
                 }
             except:
                 continue
@@ -297,13 +316,19 @@ def send_discord_notification(site_key, new_products):
     site = SITES[site_key]
 
     for product_id, product in new_products.items():
+        # 품절 여부에 따라 타이틀 변경
+        is_soldout = product.get("soldout", False)
+        title_prefix = "🎵 새 LP 등록!"
+        if is_soldout:
+            title_prefix = "🎵 새 LP 등록! [품절]"
+
         embed = {
             "embeds": [
                 {
-                    "title": f"🎵 새 LP 등록! [{site['name']}]",
+                    "title": f"{title_prefix} [{site['name']}]",
                     "description": product["title"],
                     "url": product["url"],
-                    "color": site["color"],
+                    "color": 0x808080 if is_soldout else site["color"],  # 품절이면 회색
                     "fields": [],
                     "footer": {"text": f"{site['name']} LP"},
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -312,8 +337,11 @@ def send_discord_notification(site_key, new_products):
         }
 
         if product["price"]:
+            price_display = product["price"]
+            if is_soldout:
+                price_display = f"~~{product['price']}~~ (품절)"
             embed["embeds"][0]["fields"].append(
-                {"name": "가격", "value": product["price"], "inline": True}
+                {"name": "가격", "value": price_display, "inline": True}
             )
 
         if product["image"]:
