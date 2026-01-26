@@ -12,6 +12,7 @@ import os
 import re
 from datetime import datetime, timezone
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -218,14 +219,20 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
         return None
 
 
-def fetch_aladin_products(driver, saved_products, is_first_run):
-    """알라딘에서 상품 목록 가져오기 (출시일순 + 등록일순) - 즉시 알림"""
+def fetch_aladin_products(saved_products, is_first_run):
+    """알라딘에서 상품 목록 가져오기 (출시일순 + 등록일순) - requests 사용으로 빠른 조회"""
     products = {}
     site_saved = saved_products.get("aladin", {})
 
-    def parse_and_notify():
-        """현재 페이지에서 상품 파싱 및 즉시 알림"""
-        soup = BeautifulSoup(driver.page_source, "html.parser")
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+    }
+
+    def parse_and_notify(html):
+        """HTML에서 상품 파싱 및 즉시 알림"""
+        soup = BeautifulSoup(html, "html.parser")
         page_products = {}
 
         for box in soup.select("div.ss_book_box"):
@@ -283,25 +290,15 @@ def fetch_aladin_products(driver, saved_products, is_first_run):
 
         # 1. 출시일순 (SortOrder=5)
         print(f"[{datetime.now()}] [알라딘] 출시일순 조회 중...")
-        driver.get(base_url + "&SortOrder=5")
-
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.ss_book_box"))
-        )
-
-        release_products = parse_and_notify()
+        response = requests.get(base_url + "&SortOrder=5", headers=headers, timeout=10)
+        release_products = parse_and_notify(response.text)
         print(f"[{datetime.now()}] [알라딘] 출시일순: {len(release_products)}개")
         products.update(release_products)
 
         # 2. 등록일순 (SortOrder=6)
         print(f"[{datetime.now()}] [알라딘] 등록일순 조회 중...")
-        driver.get(base_url + "&SortOrder=6")
-
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.ss_book_box"))
-        )
-
-        register_products = parse_and_notify()
+        response = requests.get(base_url + "&SortOrder=6", headers=headers, timeout=10)
+        register_products = parse_and_notify(response.text)
         print(f"[{datetime.now()}] [알라딘] 등록일순: {len(register_products)}개")
 
         # 등록일순에서 새로 발견된 상품 추가
@@ -317,7 +314,7 @@ def fetch_aladin_products(driver, saved_products, is_first_run):
 
 
 def fetch_ktown4u_products(driver, saved_products, is_first_run):
-    """Ktown4u에서 상품 목록 가져오기 - 즉시 알림"""
+    """Ktown4u에서 상품 목록 가져오기 - 즉시 알림 (최적화)"""
     site_saved = saved_products.get("ktown4u", {})
 
     try:
@@ -325,12 +322,15 @@ def fetch_ktown4u_products(driver, saved_products, is_first_run):
         print(f"[{datetime.now()}] [Ktown4u] 페이지 로드 중...")
         driver.get(url)
 
-        time.sleep(8)  # 동적 로딩 대기
+        # 상품이 로드될 때까지 대기 (최대 10초)
+        WebDriverWait(driver, 10).until(
+            lambda d: len(d.find_elements(By.CSS_SELECTOR, 'a[href*="/iteminfo?"]')) > 5
+        )
 
-        # 스크롤해서 더 많은 상품 로드
-        for _ in range(5):
+        # 스크롤해서 더 많은 상품 로드 (최적화: 3회로 축소, 대기 시간 단축)
+        for _ in range(3):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1.5)
+            time.sleep(0.8)
 
         soup = BeautifulSoup(driver.page_source, "html.parser")
         products = {}
@@ -443,37 +443,50 @@ def send_discord_notification(site_key, new_products):
 
 def main():
     print(f"[{datetime.now()}] LP 모니터링 시작 (Yes24 + 알라딘 + Ktown4u)...")
+    start_time = time.time()
 
     saved_products = load_saved_products()
+    is_first_run = all(not saved_products.get(site, {}) for site in SITES.keys())
+
+    results = {}
     driver = None
 
     try:
-        driver = create_driver()
+        # 병렬 실행: 알라딘(requests)과 Selenium 작업 동시 실행
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # 알라딘은 requests로 별도 스레드에서 실행
+            aladin_future = executor.submit(fetch_aladin_products, saved_products, is_first_run)
 
-        fetch_functions = {
-            "yes24": fetch_yes24_products,
-            "aladin": fetch_aladin_products,
-            "ktown4u": fetch_ktown4u_products,
-        }
+            # Selenium 작업 (Yes24 + Ktown4u)는 메인 스레드에서 순차 실행
+            driver = create_driver()
 
-        is_first_run = all(not saved_products.get(site, {}) for site in SITES.keys())
+            # Yes24 조회
+            yes24_products = fetch_yes24_products(driver, saved_products, is_first_run)
+            if yes24_products:
+                results["yes24"] = yes24_products
+                print(f"[{datetime.now()}] [Yes24] 조회된 상품: {len(yes24_products)}개")
 
-        for site_key, fetch_func in fetch_functions.items():
-            site = SITES[site_key]
-            # 즉시 알림을 위해 saved_products와 is_first_run 전달
-            current_products = fetch_func(driver, saved_products, is_first_run)
+            # Ktown4u 조회
+            ktown4u_products = fetch_ktown4u_products(driver, saved_products, is_first_run)
+            if ktown4u_products:
+                results["ktown4u"] = ktown4u_products
+                print(f"[{datetime.now()}] [Ktown4u] 조회된 상품: {len(ktown4u_products)}개")
 
-            if current_products is None:
-                print(f"[{datetime.now()}] [{site['name']}] 상품 조회 실패")
-                continue
+            # 알라딘 결과 수집
+            aladin_products = aladin_future.result()
+            if aladin_products:
+                results["aladin"] = aladin_products
+                print(f"[{datetime.now()}] [알라딘] 조회된 상품: {len(aladin_products)}개")
 
-            print(f"[{datetime.now()}] [{site['name']}] 조회된 상품: {len(current_products)}개")
-
-            # 상품 목록 업데이트 (알림은 fetch 함수 내에서 이미 발송됨)
+        # 결과 저장
+        for site_key, current_products in results.items():
             site_saved = saved_products.get(site_key, {})
             saved_products[site_key] = {**site_saved, **current_products}
 
         save_products(saved_products)
+
+        elapsed = time.time() - start_time
+        print(f"[{datetime.now()}] 총 소요 시간: {elapsed:.1f}초")
 
         if is_first_run:
             print(f"[{datetime.now()}] 첫 실행 - 상품 목록 저장 완료")
