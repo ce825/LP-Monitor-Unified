@@ -17,19 +17,22 @@
       "title": "혁오 (HYUKOH) - 24: How to find true love [투명 레드 컬러 LP]",
       "price": "54,900원",
       "url": "https://www.yes24.com/Product/Goods/172521211",
-      "image": "https://image.yes24.com/goods/172521211/L"
+      "image": "https://image.yes24.com/goods/172521211/L",
+      "soldout": true
     },
     "172521218": {
       "title": "혁오 (HYUKOH) - 사랑으로 [화이트 컬러 LP]",
       "price": "54,900원",
       "url": "https://www.yes24.com/Product/Goods/172521218",
-      "image": "https://image.yes24.com/goods/172521218/L"
+      "image": "https://image.yes24.com/goods/172521218/L",
+      "soldout": true
     },
     "172521208": {
       "title": "혁오 (HYUKOH) - 23 [클리어 컬러 2LP]",
       "price": "66,100원",
       "url": "https://www.yes24.com/Product/Goods/172521208",
-      "image": "https://image.yes24.com/goods/172521208/L"
+      "image": "https://image.yes24.com/goods/172521208/L",
+      "soldout": true
     },
     "174283736": {
       "title": "방탄소년단 (BTS) - ARIRANG [Deluxe Ver.][LP][2종 SET]",
@@ -74,13 +77,15 @@
       "title": "혁오 (HYUKOH) - 20 [LP]",
       "price": "54,900원",
       "url": "https://www.yes24.com/Product/Goods/172521195",
-      "image": "https://image.yes24.com/goods/172521195/L"
+      "image": "https://image.yes24.com/goods/172521195/L",
+      "soldout": true
     },
     "172521202": {
       "title": "혁오 (HYUKOH) - 22 [LP]",
       "price": "54,900원",
       "url": "https://www.yes24.com/Product/Goods/172521202",
-      "image": "https://image.yes24.com/goods/172521202/L"
+      "image": "https://image.yes24.com/goods/172521202/L",
+      "soldout": true
     },
     "133846224": {
       "title": "혁오 (HYUKOH), 선셋 롤러코스터 (Sunset Rollercoaster) - AAA [마블 컬러 LP]",
@@ -99,7 +104,8 @@
       "title": "소란 (SORAN) - EP : DREAM [LP]",
       "price": "46,000원",
       "url": "https://www.yes24.com/Product/Goods/174785437",
-      "image": "https://image.yes24.com/goods/174785437/L"
+      "image": "https://image.yes24.com/goods/174785437/L",
+      "soldout": false
     },
     "168465413": {
       "title": "주혜린 - Re-Make [LP]",
@@ -257,6 +263,41 @@
       "url": "https://www.yes24.com/Product/Goods/152377771",
       "image": "https://image.yes24.com/goods/152377771/L",
       "soldout": true
+    },
+    "173736006": {
+      "title": "일레인 (ELAINE) - 1st [LP]",
+      "price": "44,600원",
+      "url": "https://www.yes24.com/Product/Goods/173736006",
+      "image": "https://image.yes24.com/goods/173736006/L",
+      "soldout": false
+    },
+    "172693523": {
+      "title": "르세라핌 (LE SSERAFIM) - LE SSERAFIM 1st Single Album 'SPAGHETTI' [LP][2종 중 1종 랜덤발송]",
+      "price": "45,300원",
+      "url": "https://www.yes24.com/Product/Goods/172693523",
+      "image": "https://image.yes24.com/goods/172693523/L",
+      "soldout": false
+    },
+    "171687064": {
+      "title": "헤이즈 (Heize) - LOVE VIRUS Pt.1 [투명 블루 컬러 LP]",
+      "price": "52,000원",
+      "url": "https://www.yes24.com/Product/Goods/171687064",
+      "image": "https://image.yes24.com/goods/171687064/L",
+      "soldout": true
+    },
+    "170330962": {
+      "title": "팔칠댄스 (87dance) - i love your complex [상그리아 컬러 LP]",
+      "price": "49,000원",
+      "url": "https://www.yes24.com/Product/Goods/170330962",
+      "image": "https://image.yes24.com/goods/170330962/L",
+      "soldout": true
+    },
+    "169662984": {
+      "title": "티어라이너 (tearliner) - 3집 MUSICOMANIA [LP]",
+      "price": "44,600원",
+      "url": "https://www.yes24.com/Product/Goods/169662984",
+      "image": "https://image.yes24.com/goods/169662984/L",
+      "soldout": false
     }
   },
   "aladin": {
@@ -434,6 +475,76 @@
       "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=380815320",
       "image": "https://image.aladin.co.kr/product/38081/53/cover150/c382939486_3.jpg",
       "soldout": false
+    },
+    "380813742": {
+      "title": "김추자 - NOW [180g LP]",
+      "price": "49,000원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=380813742",
+      "image": "https://image.aladin.co.kr/product/38081/37/cover150/c352939486_1.jpg",
+      "soldout": true
+    },
+    "380813407": {
+      "title": "신정숙 - 좀더, 떠나면 어떻해(신중현 작품집) [180g LP]",
+      "price": "49,000원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=380813407",
+      "image": "https://image.aladin.co.kr/product/38081/34/cover150/c242939486_1.jpg",
+      "soldout": true
+    },
+    "378968965": {
+      "title": "브라운 아이드 소울 - 정규 5집 Soul Tricycle [2LP]",
+      "price": "148,500원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=378968965",
+      "image": "https://image.aladin.co.kr/product/37896/89/cover150/c782939184_1.jpg",
+      "soldout": false
+    },
+    "375653000": {
+      "title": "V.O.S - Voice Of Best [Limited Transparent Burgundy Color LP]",
+      "price": "52,000원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=375653000",
+      "image": "https://image.aladin.co.kr/product/37565/30/cover150/c182939673_1.jpg",
+      "soldout": false
+    },
+    "375651948": {
+      "title": "나인뮤지스 - Hera: Best Of 9MUSES [Limited Purple Color LP]",
+      "price": "52,000원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=375651948",
+      "image": "https://image.aladin.co.kr/product/37565/19/cover150/c172939673_1.jpg",
+      "soldout": false
+    },
+    "377740755": {
+      "title": "저스디스 - LIT [컬러 2LP]",
+      "price": "74,300원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=377740755",
+      "image": "https://image.aladin.co.kr/product/37774/7/cover150/c132939985_1.jpg",
+      "soldout": false
+    },
+    "373080976": {
+      "title": "Mark Tuan - Silhouette [LP ver.]",
+      "price": "44,600원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=373080976",
+      "image": "https://image.aladin.co.kr/product/37308/9/cover150/c052939172_1.jpg",
+      "soldout": false
+    },
+    "379075965": {
+      "title": "매드클라운 - 정규 1집 Anything Goes II [180g LP]",
+      "price": "52,000원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=379075965",
+      "image": "https://image.aladin.co.kr/product/37907/59/cover150/c372939280_1.jpg",
+      "soldout": false
+    },
+    "375197953": {
+      "title": "최유리 - EP앨범 머무름, 하나 [10인치 커스텀 옥색 LP]",
+      "price": "40,800원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=375197953",
+      "image": "https://image.aladin.co.kr/product/37519/79/cover150/c692939575_1.jpg",
+      "soldout": false
+    },
+    "370695411": {
+      "title": "웬디 - 미니 3집 Cerulean Verge [150g 컬러 LP][한정반]",
+      "price": "44,600원",
+      "url": "https://www.aladin.co.kr/shop/wproduct.aspx?ItemId=370695411",
+      "image": "https://image.aladin.co.kr/product/37069/54/cover150/c202939465_1.jpg",
+      "soldout": false
     }
   },
   "ktown4u": {
@@ -554,7 +665,7 @@
       "price": "45,300원",
       "url": "https://kr.ktown4u.com/iteminfo?goods_no=155241",
       "image": "https://media.ktown4u.com/products/resize/detail/2026/01/06/L3Fond.png",
-      "soldout": true
+      "soldout": false
     },
     "155244": {
       "title": "[2CD 세트상품] 르세라핌 (LE SSERAFIM) - 싱글앨범 1집 [SPAGHETTI] (LP)",

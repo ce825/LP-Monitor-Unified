@@ -95,12 +95,13 @@ def create_driver():
     return driver
 
 
-def fetch_yes24_products(driver):
-    """Yes24에서 상품 목록 가져오기 (신상품순 + 등록일순)"""
+def fetch_yes24_products(driver, saved_products, is_first_run):
+    """Yes24에서 상품 목록 가져오기 (신상품순 + 등록일순) - 즉시 알림"""
     products = {}
+    site_saved = saved_products.get("yes24", {})
 
-    def parse_products_from_page():
-        """현재 페이지에서 상품 파싱"""
+    def parse_and_notify():
+        """현재 페이지에서 상품 파싱 및 즉시 알림"""
         soup = BeautifulSoup(driver.page_source, "html.parser")
         page_products = {}
 
@@ -146,13 +147,20 @@ def fetch_yes24_products(driver):
                 )
 
                 if product_id and title:
-                    page_products[product_id] = {
+                    product = {
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.yes24.com/Product/Goods/{product_id}",
                         "image": img_url,
                         "soldout": is_soldout,
                     }
+                    page_products[product_id] = product
+
+                    # 신상품이면 즉시 알림
+                    if product_id not in site_saved and product_id not in products:
+                        if not is_first_run:
+                            print(f"[{datetime.now()}] [Yes24] 신상품 발견! 즉시 알림: {title[:50]}")
+                            send_discord_notification("yes24", {product_id: product})
             except:
                 continue
 
@@ -179,14 +187,14 @@ def fetch_yes24_products(driver):
             EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
         )
 
-        recent_products = parse_products_from_page()
+        recent_products = parse_and_notify()
         print(f"[{datetime.now()}] [Yes24] 신상품순: {len(recent_products)}개")
         products.update(recent_products)
 
         # 2. 등록일순 정렬
         print(f"[{datetime.now()}] [Yes24] 등록일순 정렬 클릭...")
         sort_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='NEW']"))
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='REG_DTS']"))
         )
         sort_button.click()
 
@@ -195,7 +203,7 @@ def fetch_yes24_products(driver):
             EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
         )
 
-        new_products = parse_products_from_page()
+        new_products = parse_and_notify()
         print(f"[{datetime.now()}] [Yes24] 등록일순: {len(new_products)}개")
 
         # 등록일순에서 새로 발견된 상품 추가
@@ -210,12 +218,13 @@ def fetch_yes24_products(driver):
         return None
 
 
-def fetch_aladin_products(driver):
-    """알라딘에서 상품 목록 가져오기 (출시일순 + 등록일순)"""
+def fetch_aladin_products(driver, saved_products, is_first_run):
+    """알라딘에서 상품 목록 가져오기 (출시일순 + 등록일순) - 즉시 알림"""
     products = {}
+    site_saved = saved_products.get("aladin", {})
 
-    def parse_products_from_page():
-        """현재 페이지에서 상품 파싱"""
+    def parse_and_notify():
+        """현재 페이지에서 상품 파싱 및 즉시 알림"""
         soup = BeautifulSoup(driver.page_source, "html.parser")
         page_products = {}
 
@@ -250,13 +259,20 @@ def fetch_aladin_products(driver):
                 is_soldout = "품절" in box_text or "절판" in box_text
 
                 if product_id and title:
-                    page_products[product_id] = {
+                    product = {
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.aladin.co.kr/shop/wproduct.aspx?ItemId={product_id}",
                         "image": img_url,
                         "soldout": is_soldout,
                     }
+                    page_products[product_id] = product
+
+                    # 신상품이면 즉시 알림
+                    if product_id not in site_saved and product_id not in products:
+                        if not is_first_run:
+                            print(f"[{datetime.now()}] [알라딘] 신상품 발견! 즉시 알림: {title[:50]}")
+                            send_discord_notification("aladin", {product_id: product})
             except:
                 continue
 
@@ -273,7 +289,7 @@ def fetch_aladin_products(driver):
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.ss_book_box"))
         )
 
-        release_products = parse_products_from_page()
+        release_products = parse_and_notify()
         print(f"[{datetime.now()}] [알라딘] 출시일순: {len(release_products)}개")
         products.update(release_products)
 
@@ -285,7 +301,7 @@ def fetch_aladin_products(driver):
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.ss_book_box"))
         )
 
-        register_products = parse_products_from_page()
+        register_products = parse_and_notify()
         print(f"[{datetime.now()}] [알라딘] 등록일순: {len(register_products)}개")
 
         # 등록일순에서 새로 발견된 상품 추가
@@ -300,8 +316,10 @@ def fetch_aladin_products(driver):
         return None
 
 
-def fetch_ktown4u_products(driver):
-    """Ktown4u에서 상품 목록 가져오기"""
+def fetch_ktown4u_products(driver, saved_products, is_first_run):
+    """Ktown4u에서 상품 목록 가져오기 - 즉시 알림"""
+    site_saved = saved_products.get("ktown4u", {})
+
     try:
         url = SITES["ktown4u"]["url"]
         print(f"[{datetime.now()}] [Ktown4u] 페이지 로드 중...")
@@ -352,13 +370,20 @@ def fetch_ktown4u_products(driver):
                 # 품절 여부 확인
                 is_soldout = "품절" in link_text
 
-                products[product_id] = {
+                product = {
                     "title": title[:100],
                     "price": price,
                     "url": f"https://kr.ktown4u.com/iteminfo?goods_no={product_id}",
                     "image": img_url.replace("/thumbnail/", "/detail/") if img_url else "",
                     "soldout": is_soldout,
                 }
+                products[product_id] = product
+
+                # 신상품이면 즉시 알림
+                if product_id not in site_saved:
+                    if not is_first_run:
+                        print(f"[{datetime.now()}] [Ktown4u] 신상품 발견! 즉시 알림: {title[:50]}")
+                        send_discord_notification("ktown4u", {product_id: product})
             except:
                 continue
 
@@ -432,11 +457,11 @@ def main():
         }
 
         is_first_run = all(not saved_products.get(site, {}) for site in SITES.keys())
-        total_new = 0
 
         for site_key, fetch_func in fetch_functions.items():
             site = SITES[site_key]
-            current_products = fetch_func(driver)
+            # 즉시 알림을 위해 saved_products와 is_first_run 전달
+            current_products = fetch_func(driver, saved_products, is_first_run)
 
             if current_products is None:
                 print(f"[{datetime.now()}] [{site['name']}] 상품 조회 실패")
@@ -444,20 +469,8 @@ def main():
 
             print(f"[{datetime.now()}] [{site['name']}] 조회된 상품: {len(current_products)}개")
 
+            # 상품 목록 업데이트 (알림은 fetch 함수 내에서 이미 발송됨)
             site_saved = saved_products.get(site_key, {})
-
-            new_products = {
-                pid: prod
-                for pid, prod in current_products.items()
-                if pid not in site_saved
-            }
-
-            if new_products:
-                print(f"[{datetime.now()}] [{site['name']}] 새 상품 {len(new_products)}개 발견!")
-                if not is_first_run:
-                    send_discord_notification(site_key, new_products)
-                total_new += len(new_products)
-
             saved_products[site_key] = {**site_saved, **current_products}
 
         save_products(saved_products)
@@ -472,8 +485,6 @@ def main():
                 requests.post(DISCORD_WEBHOOK_URL, json=test_msg, timeout=10)
             except:
                 pass
-        elif total_new == 0:
-            print(f"[{datetime.now()}] 새 상품 없음")
 
     finally:
         if driver:
