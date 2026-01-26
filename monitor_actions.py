@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-LP 신상품 모니터링 스크립트 (GitHub Actions용)
-Yes24 + Aladin + Ktown4u를 모니터링합니다.
+LP 통합 모니터링 스크립트 (GitHub Actions용)
+신상품 + 재입고를 한 번에 모니터링합니다.
+Yes24 + Aladin + Ktown4u
 """
 
 import requests
@@ -11,7 +12,7 @@ import os
 import re
 from datetime import datetime, timezone
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -29,7 +30,7 @@ SITES = {
     "aladin": {
         "name": "알라딘",
         "url": "https://www.aladin.co.kr/shop/wbrowse.aspx?BrowseTarget=List&ViewRowsCount=25&ViewType=Detail&PublishMonth=0&SortOrder=6&page=1&Stockstatus=1&PublishDay=84&CID=86800&SearchOption=",
-        "color": 0xFFD700,  # 노란색 (골드)
+        "color": 0xFFD700,
     },
     "ktown4u": {
         "name": "Ktown4u",
@@ -38,17 +39,17 @@ SITES = {
     },
 }
 
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+# Discord Webhooks (신상품/재입고 분리)
+DISCORD_WEBHOOK_NEW = os.environ.get("DISCORD_WEBHOOK_NEW", "")
+DISCORD_WEBHOOK_RESTOCK = os.environ.get("DISCORD_WEBHOOK_RESTOCK", "")
 DATA_FILE = "products.json"
 
 
 def load_saved_products():
+    """저장된 상품 목록 불러오기"""
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            if data and not any(key in data for key in SITES.keys()):
-                print("데이터 형식 마이그레이션 중...")
-                return {"yes24": data, "aladin": {}, "ktown4u": {}}
             for site_key in SITES.keys():
                 if site_key not in data:
                     data[site_key] = {}
@@ -57,11 +58,13 @@ def load_saved_products():
 
 
 def save_products(products):
+    """상품 목록 저장"""
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(products, f, ensure_ascii=False, indent=2)
 
 
 def create_driver():
+    """Chrome WebDriver 생성"""
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
@@ -84,13 +87,11 @@ def create_driver():
     return driver
 
 
-def fetch_yes24_products(driver, saved_products, is_first_run):
-    """Yes24에서 상품 목록 가져오기 (신상품순 + 등록일순) - 즉시 알림"""
+def fetch_yes24_products(driver):
+    """Yes24에서 상품 목록 가져오기 (신상품순 + 등록일순 + 판매량순)"""
     products = {}
-    site_saved = saved_products.get("yes24", {})
 
-    def parse_and_notify():
-        """현재 페이지에서 상품 파싱 및 즉시 알림"""
+    def parse_products_from_page():
         soup = BeautifulSoup(driver.page_source, "html.parser")
         page_products = {}
 
@@ -136,20 +137,13 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
                 )
 
                 if product_id and title:
-                    product = {
+                    page_products[product_id] = {
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.yes24.com/Product/Goods/{product_id}",
                         "image": img_url,
                         "soldout": is_soldout,
                     }
-                    page_products[product_id] = product
-
-                    # 신상품이면 즉시 알림
-                    if product_id not in site_saved and product_id not in products:
-                        if not is_first_run:
-                            print(f"[Yes24] 신상품 발견! 즉시 알림: {title[:50]}")
-                            send_discord_notification("yes24", {product_id: product})
             except:
                 continue
 
@@ -165,38 +159,48 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
         )
 
         # 1. 신상품순 정렬
-        print(f"[Yes24] 신상품순 정렬 클릭...")
+        print(f"[Yes24] 신상품순 정렬...")
         sort_button = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='RECENT']"))
         )
         sort_button.click()
-
         time.sleep(2)
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
         )
-
-        recent_products = parse_and_notify()
+        recent_products = parse_products_from_page()
         print(f"[Yes24] 신상품순: {len(recent_products)}개")
         products.update(recent_products)
 
         # 2. 등록일순 정렬
-        print(f"[Yes24] 등록일순 정렬 클릭...")
+        print(f"[Yes24] 등록일순 정렬...")
         sort_button = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='REG_DTS']"))
         )
         sort_button.click()
-
         time.sleep(2)
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
         )
-
-        new_products = parse_and_notify()
+        new_products = parse_products_from_page()
         print(f"[Yes24] 등록일순: {len(new_products)}개")
-
-        # 등록일순에서 새로 발견된 상품 추가
         for pid, prod in new_products.items():
+            if pid not in products:
+                products[pid] = prod
+
+        # 3. 판매량순 정렬 (재입고 체크용)
+        print(f"[Yes24] 판매량순 정렬...")
+        sort_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='SALE_SCO']"))
+        )
+        sort_button.click()
+        time.sleep(2)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+        sale_products = parse_products_from_page()
+        print(f"[Yes24] 판매량순: {len(sale_products)}개")
+        for pid, prod in sale_products.items():
             if pid not in products:
                 products[pid] = prod
 
@@ -207,10 +211,9 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
         return None
 
 
-def fetch_aladin_products(saved_products, is_first_run):
-    """알라딘에서 상품 목록 가져오기 (출시일순 + 등록일순) - requests 사용으로 빠른 조회"""
+def fetch_aladin_products():
+    """알라딘에서 상품 목록 가져오기 (출시일순 + 등록일순 + 리뷰순 2페이지)"""
     products = {}
-    site_saved = saved_products.get("aladin", {})
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -218,8 +221,7 @@ def fetch_aladin_products(saved_products, is_first_run):
         'Accept-Language': 'ko-KR,ko;q=0.9',
     }
 
-    def parse_and_notify(html):
-        """HTML에서 상품 파싱 및 즉시 알림"""
+    def parse_products_from_html(html):
         soup = BeautifulSoup(html, "html.parser")
         page_products = {}
 
@@ -254,45 +256,69 @@ def fetch_aladin_products(saved_products, is_first_run):
                 is_soldout = "품절" in box_text or "절판" in box_text
 
                 if product_id and title:
-                    product = {
+                    page_products[product_id] = {
                         "title": title[:100],
                         "price": price,
                         "url": f"https://www.aladin.co.kr/shop/wproduct.aspx?ItemId={product_id}",
                         "image": img_url,
                         "soldout": is_soldout,
                     }
-                    page_products[product_id] = product
-
-                    # 신상품이면 즉시 알림
-                    if product_id not in site_saved and product_id not in products:
-                        if not is_first_run:
-                            print(f"[알라딘] 신상품 발견! 즉시 알림: {title[:50]}")
-                            send_discord_notification("aladin", {product_id: product})
             except:
                 continue
 
         return page_products
 
+    def safe_request(url):
+        """Rate limit을 고려한 안전한 요청"""
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code == 429:
+                print(f"[알라딘] Rate limit 감지, 5초 대기...")
+                time.sleep(5)
+                response = requests.get(url, headers=headers, timeout=10)
+            return response
+        except Exception as e:
+            print(f"[알라딘] 요청 실패: {e}")
+            return None
+
     try:
-        base_url = "https://www.aladin.co.kr/shop/wbrowse.aspx?BrowseTarget=List&ViewRowsCount=25&ViewType=Detail&PublishMonth=0&page=1&Stockstatus=1&PublishDay=84&CID=86800&SearchOption="
+        base_url = "https://www.aladin.co.kr/shop/wbrowse.aspx?BrowseTarget=List&ViewRowsCount=25&ViewType=Detail&PublishMonth=0&page=1&PublishDay=84&CID=86800&SearchOption="
 
         # 1. 출시일순 (SortOrder=5)
-        print(f"[알라딘] 출시일순 조회 중...")
-        response = requests.get(base_url + "&SortOrder=5", headers=headers, timeout=10)
-        release_products = parse_and_notify(response.text)
-        print(f"[알라딘] 출시일순: {len(release_products)}개")
-        products.update(release_products)
+        print(f"[알라딘] 출시일순 조회...")
+        response = safe_request(base_url + "&SortOrder=5")
+        if response:
+            release_products = parse_products_from_html(response.text)
+            print(f"[알라딘] 출시일순: {len(release_products)}개")
+            products.update(release_products)
+
+        time.sleep(1)  # 요청 간 딜레이
 
         # 2. 등록일순 (SortOrder=6)
-        print(f"[알라딘] 등록일순 조회 중...")
-        response = requests.get(base_url + "&SortOrder=6", headers=headers, timeout=10)
-        register_products = parse_and_notify(response.text)
-        print(f"[알라딘] 등록일순: {len(register_products)}개")
+        print(f"[알라딘] 등록일순 조회...")
+        response = safe_request(base_url + "&SortOrder=6")
+        if response:
+            register_products = parse_products_from_html(response.text)
+            print(f"[알라딘] 등록일순: {len(register_products)}개")
+            for pid, prod in register_products.items():
+                if pid not in products:
+                    products[pid] = prod
 
-        # 등록일순에서 새로 발견된 상품 추가
-        for pid, prod in register_products.items():
-            if pid not in products:
-                products[pid] = prod
+        time.sleep(1)  # 요청 간 딜레이
+
+        # 3. 리뷰순 (SortOrder=4) - 날짜 필터 없이 2페이지까지 (재입고 체크용)
+        review_base = "https://www.aladin.co.kr/shop/wbrowse.aspx?BrowseTarget=List&ViewRowsCount=25&ViewType=Detail&CID=86800&SortOrder=4"
+
+        for page in [1, 2]:
+            print(f"[알라딘] 리뷰순 {page}페이지 조회...")
+            response = safe_request(f"{review_base}&page={page}")
+            if response:
+                review_products = parse_products_from_html(response.text)
+                print(f"[알라딘] 리뷰순 {page}페이지: {len(review_products)}개")
+                for pid, prod in review_products.items():
+                    if pid not in products:
+                        products[pid] = prod
+            time.sleep(1)  # 요청 간 딜레이
 
         return products
 
@@ -301,21 +327,18 @@ def fetch_aladin_products(saved_products, is_first_run):
         return None
 
 
-def fetch_ktown4u_products(driver, saved_products, is_first_run):
-    """Ktown4u에서 상품 목록 가져오기 - 즉시 알림 (최적화)"""
-    site_saved = saved_products.get("ktown4u", {})
-
+def fetch_ktown4u_products(driver):
+    """Ktown4u에서 상품 목록 가져오기"""
     try:
         url = SITES["ktown4u"]["url"]
         print(f"[Ktown4u] 페이지 로드 중...")
         driver.get(url)
 
-        # 상품이 로드될 때까지 대기 (최대 10초)
         WebDriverWait(driver, 10).until(
             lambda d: len(d.find_elements(By.CSS_SELECTOR, 'a[href*="/iteminfo?"]')) > 5
         )
 
-        # 스크롤해서 더 많은 상품 로드 (최적화: 3회로 축소, 대기 시간 단축)
+        # 스크롤해서 더 많은 상품 로드
         for _ in range(3):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(0.8)
@@ -352,23 +375,15 @@ def fetch_ktown4u_products(driver, saved_products, is_first_run):
                 if price_match:
                     price = price_match.group(1) + "원"
 
-                # 품절 여부 확인
                 is_soldout = "품절" in link_text
 
-                product = {
+                products[product_id] = {
                     "title": title[:100],
                     "price": price,
                     "url": f"https://kr.ktown4u.com/iteminfo?goods_no={product_id}",
                     "image": img_url.replace("/thumbnail/", "/detail/") if img_url else "",
                     "soldout": is_soldout,
                 }
-                products[product_id] = product
-
-                # 신상품이면 즉시 알림
-                if product_id not in site_saved:
-                    if not is_first_run:
-                        print(f"[Ktown4u] 신상품 발견! 즉시 알림: {title[:50]}")
-                        send_discord_notification("ktown4u", {product_id: product})
             except:
                 continue
 
@@ -379,15 +394,15 @@ def fetch_ktown4u_products(driver, saved_products, is_first_run):
         return None
 
 
-def send_discord_notification(site_key, new_products):
-    if not DISCORD_WEBHOOK_URL:
-        print("Discord webhook URL이 설정되지 않았습니다.")
+def send_new_product_notification(site_key, new_products):
+    """신상품 알림 전송"""
+    if not DISCORD_WEBHOOK_NEW:
+        print("신상품 Discord webhook URL이 설정되지 않았습니다.")
         return
 
     site = SITES[site_key]
 
     for product_id, product in new_products.items():
-        # 품절 여부에 따라 타이틀 변경
         is_soldout = product.get("soldout", False)
         title_prefix = "🎵 새 LP 등록!"
         if is_soldout:
@@ -399,7 +414,7 @@ def send_discord_notification(site_key, new_products):
                     "title": f"{title_prefix} [{site['name']}]",
                     "description": product["title"],
                     "url": product["url"],
-                    "color": 0x808080 if is_soldout else site["color"],  # 품절이면 회색
+                    "color": 0x808080 if is_soldout else site["color"],
                     "fields": [],
                     "footer": {"text": f"{site['name']} LP"},
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -419,9 +434,51 @@ def send_discord_notification(site_key, new_products):
             embed["embeds"][0]["thumbnail"] = {"url": product["image"]}
 
         try:
-            response = requests.post(DISCORD_WEBHOOK_URL, json=embed, timeout=10)
+            response = requests.post(DISCORD_WEBHOOK_NEW, json=embed, timeout=10)
             if response.status_code == 204:
-                print(f"[{site['name']}] 알림 전송 완료: {product['title']}")
+                print(f"[{site['name']}] 신상품 알림 전송: {product['title'][:50]}")
+            else:
+                print(f"[{site['name']}] 알림 전송 실패: {response.status_code}")
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"[{site['name']}] Discord 전송 오류: {e}")
+
+
+def send_restock_notification(site_key, restocked_products):
+    """재입고 알림 전송"""
+    if not DISCORD_WEBHOOK_RESTOCK:
+        print("재입고 Discord webhook URL이 설정되지 않았습니다.")
+        return
+
+    site = SITES[site_key]
+
+    for product_id, product in restocked_products.items():
+        embed = {
+            "embeds": [
+                {
+                    "title": f"🎉 LP 재입고! [{site['name']}]",
+                    "description": product["title"],
+                    "url": product["url"],
+                    "color": site["color"],
+                    "fields": [],
+                    "footer": {"text": f"{site['name']} LP 재입고"},
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            ]
+        }
+
+        if product["price"]:
+            embed["embeds"][0]["fields"].append(
+                {"name": "가격", "value": product["price"], "inline": True}
+            )
+
+        if product["image"]:
+            embed["embeds"][0]["thumbnail"] = {"url": product["image"]}
+
+        try:
+            response = requests.post(DISCORD_WEBHOOK_RESTOCK, json=embed, timeout=10)
+            if response.status_code == 204:
+                print(f"[{site['name']}] 재입고 알림 전송: {product['title'][:50]}")
             else:
                 print(f"[{site['name']}] 알림 전송 실패: {response.status_code}")
             time.sleep(0.5)
@@ -430,11 +487,14 @@ def send_discord_notification(site_key, new_products):
 
 
 def main():
-    print(f"[{datetime.now()}] LP 모니터링 (Yes24 + 알라딘 + Ktown4u)...")
+    print(f"[{datetime.now()}] LP 통합 모니터링 시작 (신상품 + 재입고)...")
     start_time = time.time()
 
     saved_products = load_saved_products()
     is_first_run = all(not saved_products.get(site, {}) for site in SITES.keys())
+
+    if is_first_run:
+        print("첫 실행 - 상품 목록만 저장하고 알림은 보내지 않습니다.")
 
     results = {}
     driver = None
@@ -443,41 +503,69 @@ def main():
         # 병렬 실행: 알라딘(requests)과 Selenium 작업 동시 실행
         with ThreadPoolExecutor(max_workers=2) as executor:
             # 알라딘은 requests로 별도 스레드에서 실행
-            aladin_future = executor.submit(fetch_aladin_products, saved_products, is_first_run)
+            aladin_future = executor.submit(fetch_aladin_products)
 
-            # Selenium 작업 (Yes24 + Ktown4u)는 메인 스레드에서 순차 실행
+            # Selenium 작업 (Yes24 + Ktown4u)
             driver = create_driver()
 
-            # Yes24 조회
-            yes24_products = fetch_yes24_products(driver, saved_products, is_first_run)
+            yes24_products = fetch_yes24_products(driver)
             if yes24_products:
                 results["yes24"] = yes24_products
-                print(f"[Yes24] 조회된 상품: {len(yes24_products)}개")
 
-            # Ktown4u 조회
-            ktown4u_products = fetch_ktown4u_products(driver, saved_products, is_first_run)
+            ktown4u_products = fetch_ktown4u_products(driver)
             if ktown4u_products:
                 results["ktown4u"] = ktown4u_products
-                print(f"[Ktown4u] 조회된 상품: {len(ktown4u_products)}개")
 
             # 알라딘 결과 수집
             aladin_products = aladin_future.result()
             if aladin_products:
                 results["aladin"] = aladin_products
-                print(f"[알라딘] 조회된 상품: {len(aladin_products)}개")
 
-        # 결과 저장
+        # 신상품 및 재입고 체크
+        total_new = 0
+        total_restock = 0
+
         for site_key, current_products in results.items():
+            site = SITES[site_key]
             site_saved = saved_products.get(site_key, {})
-            saved_products[site_key] = {**site_saved, **current_products}
 
+            # 신상품 찾기 (저장된 데이터에 없는 상품)
+            new_products = {
+                pid: prod for pid, prod in current_products.items()
+                if pid not in site_saved
+            }
+
+            # 재입고 찾기 (이전에 품절이었는데 지금은 재고 있음)
+            restocked_products = {}
+            for pid, prod in current_products.items():
+                if pid in site_saved:
+                    was_soldout = site_saved[pid].get("soldout", False)
+                    is_available = not prod.get("soldout", False)
+                    if was_soldout and is_available:
+                        restocked_products[pid] = prod
+
+            print(f"[{site['name']}] 조회: {len(current_products)}개, 신상품: {len(new_products)}개, 재입고: {len(restocked_products)}개")
+
+            # 알림 전송 (첫 실행이 아닐 때만)
+            if not is_first_run:
+                if new_products:
+                    send_new_product_notification(site_key, new_products)
+                    total_new += len(new_products)
+
+                if restocked_products:
+                    send_restock_notification(site_key, restocked_products)
+                    total_restock += len(restocked_products)
+
+            # 상품 데이터 업데이트 (기존 + 신규, soldout 상태 갱신)
+            for pid, prod in current_products.items():
+                site_saved[pid] = prod
+            saved_products[site_key] = site_saved
+
+        # 저장
         save_products(saved_products)
 
         elapsed = time.time() - start_time
-        print(f"[{datetime.now()}] 총 소요 시간: {elapsed:.1f}초")
-
-        if is_first_run:
-            print("첫 실행 - 상품 목록 저장 완료")
+        print(f"[{datetime.now()}] 완료 - 소요시간: {elapsed:.1f}초, 신상품: {total_new}개, 재입고: {total_restock}개")
 
     finally:
         if driver:

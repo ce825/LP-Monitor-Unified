@@ -1,4 +1,4 @@
-name: Yes24 LP Monitor
+name: LP Monitor (Unified)
 
 on:
   workflow_dispatch:  # cron-job.org에서 트리거
@@ -10,11 +10,9 @@ jobs:
     steps:
       - name: Debug trigger info
         run: |
-          echo "🔔 Workflow triggered!"
-          echo "Event: ${{ github.event_name }}"
+          echo "Workflow triggered!"
           echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo "Run ID: ${{ github.run_id }}"
-          echo "Run Number: ${{ github.run_number }}"
 
       - uses: actions/checkout@v4
 
@@ -46,7 +44,8 @@ jobs:
           retry_wait_seconds: 30
           command: python monitor_actions.py
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_NEW: ${{ secrets.DISCORD_WEBHOOK_NEW }}
+          DISCORD_WEBHOOK_RESTOCK: ${{ secrets.DISCORD_WEBHOOK_RESTOCK }}
 
       - name: Save product cache
         uses: actions/cache/save@v4
