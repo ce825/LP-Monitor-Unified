@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 import json
 import os
 import re
+import random
 from datetime import datetime, timezone
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -87,9 +88,11 @@ def create_driver():
     return driver
 
 
-def fetch_yes24_products(driver):
+def fetch_yes24_products(driver, saved_products, is_first_run):
     """Yes24에서 상품 목록 가져오기 (신상품순 + 등록일순 + 판매량순)"""
     products = {}
+    site_key = "yes24"
+    site_saved = saved_products.get(site_key, {})
 
     def parse_products_from_page():
         soup = BeautifulSoup(driver.page_source, "html.parser")
@@ -170,6 +173,15 @@ def fetch_yes24_products(driver):
         )
         recent_products = parse_products_from_page()
         print(f"[Yes24] 신상품순: {len(recent_products)}개")
+
+        # 즉시 알림
+        if not is_first_run:
+            for pid, prod in recent_products.items():
+                if pid not in site_saved and pid not in products:
+                    send_new_product_notification(site_key, {pid: prod})
+                elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                    send_restock_notification(site_key, {pid: prod})
+
         products.update(recent_products)
 
         # 2. 등록일순 정렬
@@ -184,6 +196,15 @@ def fetch_yes24_products(driver):
         )
         new_products = parse_products_from_page()
         print(f"[Yes24] 등록일순: {len(new_products)}개")
+
+        # 즉시 알림
+        if not is_first_run:
+            for pid, prod in new_products.items():
+                if pid not in site_saved and pid not in products:
+                    send_new_product_notification(site_key, {pid: prod})
+                elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                    send_restock_notification(site_key, {pid: prod})
+
         for pid, prod in new_products.items():
             if pid not in products:
                 products[pid] = prod
@@ -200,6 +221,15 @@ def fetch_yes24_products(driver):
         )
         sale_products = parse_products_from_page()
         print(f"[Yes24] 판매량순: {len(sale_products)}개")
+
+        # 즉시 알림 (재입고 체크)
+        if not is_first_run:
+            for pid, prod in sale_products.items():
+                if pid not in site_saved and pid not in products:
+                    send_new_product_notification(site_key, {pid: prod})
+                elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                    send_restock_notification(site_key, {pid: prod})
+
         for pid, prod in sale_products.items():
             if pid not in products:
                 products[pid] = prod
@@ -211,9 +241,11 @@ def fetch_yes24_products(driver):
         return None
 
 
-def fetch_aladin_products():
+def fetch_aladin_products(saved_products, is_first_run):
     """알라딘에서 상품 목록 가져오기 (출시일순 + 등록일순 + 리뷰순 2페이지)"""
     products = {}
+    site_key = "aladin"
+    site_saved = saved_products.get(site_key, {})
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -290,6 +322,15 @@ def fetch_aladin_products():
         if response:
             release_products = parse_products_from_html(response.text)
             print(f"[알라딘] 출시일순: {len(release_products)}개")
+
+            # 즉시 알림
+            if not is_first_run:
+                for pid, prod in release_products.items():
+                    if pid not in site_saved and pid not in products:
+                        send_new_product_notification(site_key, {pid: prod})
+                    elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                        send_restock_notification(site_key, {pid: prod})
+
             products.update(release_products)
 
         time.sleep(1)  # 요청 간 딜레이
@@ -300,6 +341,15 @@ def fetch_aladin_products():
         if response:
             register_products = parse_products_from_html(response.text)
             print(f"[알라딘] 등록일순: {len(register_products)}개")
+
+            # 즉시 알림
+            if not is_first_run:
+                for pid, prod in register_products.items():
+                    if pid not in site_saved and pid not in products:
+                        send_new_product_notification(site_key, {pid: prod})
+                    elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                        send_restock_notification(site_key, {pid: prod})
+
             for pid, prod in register_products.items():
                 if pid not in products:
                     products[pid] = prod
@@ -315,6 +365,15 @@ def fetch_aladin_products():
             if response:
                 review_products = parse_products_from_html(response.text)
                 print(f"[알라딘] 리뷰순 {page}페이지: {len(review_products)}개")
+
+                # 즉시 알림 (재입고용)
+                if not is_first_run:
+                    for pid, prod in review_products.items():
+                        if pid not in site_saved and pid not in products:
+                            send_new_product_notification(site_key, {pid: prod})
+                        elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                            send_restock_notification(site_key, {pid: prod})
+
                 for pid, prod in review_products.items():
                     if pid not in products:
                         products[pid] = prod
@@ -327,8 +386,11 @@ def fetch_aladin_products():
         return None
 
 
-def fetch_ktown4u_products(driver):
+def fetch_ktown4u_products(driver, saved_products, is_first_run):
     """Ktown4u에서 상품 목록 가져오기"""
+    site_key = "ktown4u"
+    site_saved = saved_products.get(site_key, {})
+
     try:
         url = SITES["ktown4u"]["url"]
         print(f"[Ktown4u] 페이지 로드 중...")
@@ -377,13 +439,22 @@ def fetch_ktown4u_products(driver):
 
                 is_soldout = "품절" in link_text
 
-                products[product_id] = {
+                prod = {
                     "title": title[:100],
                     "price": price,
                     "url": f"https://kr.ktown4u.com/iteminfo?goods_no={product_id}",
                     "image": img_url.replace("/thumbnail/", "/detail/") if img_url else "",
                     "soldout": is_soldout,
                 }
+
+                # 즉시 알림
+                if not is_first_run:
+                    if product_id not in site_saved:
+                        send_new_product_notification(site_key, {product_id: prod})
+                    elif site_saved[product_id].get("soldout") and not is_soldout:
+                        send_restock_notification(site_key, {product_id: prod})
+
+                products[product_id] = prod
             except:
                 continue
 
@@ -487,6 +558,11 @@ def send_restock_notification(site_key, restocked_products):
 
 
 def main():
+    # 랜덤 딜레이 (0~15초) - 봇 패턴 회피
+    delay = random.randint(0, 15)
+    print(f"[{datetime.now()}] 랜덤 딜레이: {delay}초")
+    time.sleep(delay)
+
     print(f"[{datetime.now()}] LP 통합 모니터링 시작 (신상품 + 재입고)...")
     start_time = time.time()
 
@@ -503,16 +579,16 @@ def main():
         # 병렬 실행: 알라딘(requests)과 Selenium 작업 동시 실행
         with ThreadPoolExecutor(max_workers=2) as executor:
             # 알라딘은 requests로 별도 스레드에서 실행
-            aladin_future = executor.submit(fetch_aladin_products)
+            aladin_future = executor.submit(fetch_aladin_products, saved_products, is_first_run)
 
             # Selenium 작업 (Yes24 + Ktown4u)
             driver = create_driver()
 
-            yes24_products = fetch_yes24_products(driver)
+            yes24_products = fetch_yes24_products(driver, saved_products, is_first_run)
             if yes24_products:
                 results["yes24"] = yes24_products
 
-            ktown4u_products = fetch_ktown4u_products(driver)
+            ktown4u_products = fetch_ktown4u_products(driver, saved_products, is_first_run)
             if ktown4u_products:
                 results["ktown4u"] = ktown4u_products
 
@@ -521,42 +597,14 @@ def main():
             if aladin_products:
                 results["aladin"] = aladin_products
 
-        # 신상품 및 재입고 체크
-        total_new = 0
-        total_restock = 0
-
+        # 결과 집계 (알림은 이미 즉시 전송됨)
         for site_key, current_products in results.items():
             site = SITES[site_key]
             site_saved = saved_products.get(site_key, {})
 
-            # 신상품 찾기 (저장된 데이터에 없는 상품)
-            new_products = {
-                pid: prod for pid, prod in current_products.items()
-                if pid not in site_saved
-            }
+            print(f"[{site['name']}] 조회 완료: {len(current_products)}개")
 
-            # 재입고 찾기 (이전에 품절이었는데 지금은 재고 있음)
-            restocked_products = {}
-            for pid, prod in current_products.items():
-                if pid in site_saved:
-                    was_soldout = site_saved[pid].get("soldout", False)
-                    is_available = not prod.get("soldout", False)
-                    if was_soldout and is_available:
-                        restocked_products[pid] = prod
-
-            print(f"[{site['name']}] 조회: {len(current_products)}개, 신상품: {len(new_products)}개, 재입고: {len(restocked_products)}개")
-
-            # 알림 전송 (첫 실행이 아닐 때만)
-            if not is_first_run:
-                if new_products:
-                    send_new_product_notification(site_key, new_products)
-                    total_new += len(new_products)
-
-                if restocked_products:
-                    send_restock_notification(site_key, restocked_products)
-                    total_restock += len(restocked_products)
-
-            # 상품 데이터 업데이트 (기존 + 신규, soldout 상태 갱신)
+            # 상품 데이터 업데이트
             for pid, prod in current_products.items():
                 site_saved[pid] = prod
             saved_products[site_key] = site_saved
@@ -565,7 +613,7 @@ def main():
         save_products(saved_products)
 
         elapsed = time.time() - start_time
-        print(f"[{datetime.now()}] 완료 - 소요시간: {elapsed:.1f}초, 신상품: {total_new}개, 재입고: {total_restock}개")
+        print(f"[{datetime.now()}] 완료 - 소요시간: {elapsed:.1f}초")
 
     finally:
         if driver:
