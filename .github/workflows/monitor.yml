@@ -1,7 +1,7 @@
 name: LP Monitor (Unified)
 
 on:
-  workflow_dispatch:  # cron-job.org에서 트리거
+  workflow_dispatch:  # cron-job.org 또는 수동 트리거
 
 jobs:
   monitor:
