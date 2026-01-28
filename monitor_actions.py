@@ -20,6 +20,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 
 # 설정
 SITES = {
@@ -88,6 +89,38 @@ def create_driver():
     return driver
 
 
+def click_sort_button_with_retry(driver, sort_value, max_retries=3):
+    """정렬 버튼 클릭 (재시도 로직 포함)"""
+    for attempt in range(max_retries):
+        try:
+            # 정렬 버튼이 로드될 때까지 대기
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, f"a[data-search-value='{sort_value}']"))
+            )
+
+            # JavaScript로 직접 클릭 (stale element 방지)
+            driver.execute_script(f"""
+                var btn = document.querySelector("a[data-search-value='{sort_value}']");
+                if (btn) btn.click();
+            """)
+
+            # 페이지 로딩 대기
+            time.sleep(2)
+
+            # 상품 목록이 다시 로드될 때까지 대기
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+            )
+
+            return True
+
+        except (StaleElementReferenceException, TimeoutException) as e:
+            print(f"[Yes24] 정렬 클릭 재시도 {attempt + 1}/{max_retries}: {e}")
+            time.sleep(1)
+
+    return False
+
+
 def fetch_yes24_products(driver, saved_products, is_first_run):
     """Yes24에서 상품 목록 가져오기 (신상품순 + 등록일순 + 판매량순)"""
     products = {}
@@ -152,6 +185,21 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
 
         return page_products
 
+    def process_products(page_products, label):
+        """상품 처리 및 알림 전송"""
+        print(f"[Yes24] {label}: {len(page_products)}개")
+
+        if not is_first_run:
+            for pid, prod in page_products.items():
+                if pid not in site_saved and pid not in products:
+                    send_new_product_notification(site_key, {pid: prod})
+                elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                    send_restock_notification(site_key, {pid: prod})
+
+        for pid, prod in page_products.items():
+            if pid not in products:
+                products[pid] = prod
+
     try:
         url = SITES["yes24"]["url"]
         print(f"[Yes24] 페이지 로드 중...")
@@ -163,82 +211,33 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
 
         # 1. 신상품순 정렬
         print(f"[Yes24] 신상품순 정렬...")
-        sort_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='RECENT']"))
-        )
-        sort_button.click()
-        time.sleep(2)
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-        )
-        recent_products = parse_products_from_page()
-        print(f"[Yes24] 신상품순: {len(recent_products)}개")
-
-        # 즉시 알림
-        if not is_first_run:
-            for pid, prod in recent_products.items():
-                if pid not in site_saved and pid not in products:
-                    send_new_product_notification(site_key, {pid: prod})
-                elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
-                    send_restock_notification(site_key, {pid: prod})
-
-        products.update(recent_products)
+        if click_sort_button_with_retry(driver, "RECENT"):
+            recent_products = parse_products_from_page()
+            process_products(recent_products, "신상품순")
+        else:
+            print("[Yes24] 신상품순 정렬 실패")
 
         # 2. 등록일순 정렬
         print(f"[Yes24] 등록일순 정렬...")
-        sort_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='REG_DTS']"))
-        )
-        sort_button.click()
-        time.sleep(2)
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-        )
-        new_products = parse_products_from_page()
-        print(f"[Yes24] 등록일순: {len(new_products)}개")
-
-        # 즉시 알림
-        if not is_first_run:
-            for pid, prod in new_products.items():
-                if pid not in site_saved and pid not in products:
-                    send_new_product_notification(site_key, {pid: prod})
-                elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
-                    send_restock_notification(site_key, {pid: prod})
-
-        for pid, prod in new_products.items():
-            if pid not in products:
-                products[pid] = prod
+        if click_sort_button_with_retry(driver, "REG_DTS"):
+            new_products = parse_products_from_page()
+            process_products(new_products, "등록일순")
+        else:
+            print("[Yes24] 등록일순 정렬 실패")
 
         # 3. 판매량순 정렬 (재입고 체크용)
         print(f"[Yes24] 판매량순 정렬...")
-        sort_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "a[data-search-value='SALE_SCO']"))
-        )
-        sort_button.click()
-        time.sleep(2)
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-        )
-        sale_products = parse_products_from_page()
-        print(f"[Yes24] 판매량순: {len(sale_products)}개")
-
-        # 즉시 알림 (재입고 체크)
-        if not is_first_run:
-            for pid, prod in sale_products.items():
-                if pid not in site_saved and pid not in products:
-                    send_new_product_notification(site_key, {pid: prod})
-                elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
-                    send_restock_notification(site_key, {pid: prod})
-
-        for pid, prod in sale_products.items():
-            if pid not in products:
-                products[pid] = prod
+        if click_sort_button_with_retry(driver, "SALE_SCO"):
+            sale_products = parse_products_from_page()
+            process_products(sale_products, "판매량순")
+        else:
+            print("[Yes24] 판매량순 정렬 실패")
 
         return products
 
     except Exception as e:
         print(f"[Yes24] 상품 조회 실패: {e}")
-        return None
+        return products if products else None
 
 
 def fetch_aladin_products(saved_products, is_first_run):
