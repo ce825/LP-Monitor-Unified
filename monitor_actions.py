@@ -104,8 +104,8 @@ def click_sort_button_with_retry(driver, sort_value, max_retries=3):
                 if (btn) btn.click();
             """)
 
-            # 페이지 로딩 대기
-            time.sleep(2)
+            # 페이지 로딩 대기 (충분히 기다림)
+            time.sleep(4)
 
             # 상품 목록이 다시 로드될 때까지 대기
             WebDriverWait(driver, 10).until(
