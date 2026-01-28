@@ -89,36 +89,46 @@ def create_driver():
     return driver
 
 
-def click_sort_button_with_retry(driver, sort_value, max_retries=3):
-    """정렬 버튼 클릭 (재시도 로직 포함)"""
-    for attempt in range(max_retries):
-        try:
-            # 정렬 버튼이 로드될 때까지 대기
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, f"a[data-search-value='{sort_value}']"))
-            )
+def get_first_product_id(driver):
+    """현재 페이지의 첫 번째 상품 ID 가져오기"""
+    try:
+        first_item = driver.find_element(By.CSS_SELECTOR, "li[data-goods-no]")
+        return first_item.get_attribute("data-goods-no")
+    except:
+        return None
 
-            # JavaScript로 직접 클릭 (stale element 방지)
-            driver.execute_script(f"""
-                var btn = document.querySelector("a[data-search-value='{sort_value}']");
-                if (btn) btn.click();
-            """)
 
-            # 페이지 로딩 대기 (충분히 기다림)
-            time.sleep(4)
+def click_sort_and_wait(driver, sort_value, sort_name, max_wait=10):
+    """정렬 버튼 클릭 후 페이지 변경 대기"""
+    try:
+        # 현재 첫 번째 상품 ID 저장
+        old_first_id = get_first_product_id(driver)
+        print(f"[Yes24] {sort_name} 정렬 클릭 (현재 첫 상품: {old_first_id})")
 
-            # 상품 목록이 다시 로드될 때까지 대기
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-            )
+        # JavaScript로 정렬 버튼 클릭
+        driver.execute_script(f"""
+            var btn = document.querySelector("a[data-search-value='{sort_value}']");
+            if (btn) btn.click();
+        """)
 
-            return True
+        # 페이지 내용이 변경될 때까지 대기
+        start_time = time.time()
+        while time.time() - start_time < max_wait:
+            time.sleep(0.5)
+            new_first_id = get_first_product_id(driver)
+            if new_first_id and new_first_id != old_first_id:
+                print(f"[Yes24] {sort_name} 페이지 변경 감지 (새 첫 상품: {new_first_id})")
+                time.sleep(1)  # 추가 안정화 대기
+                return True
 
-        except (StaleElementReferenceException, TimeoutException) as e:
-            print(f"[Yes24] 정렬 클릭 재시도 {attempt + 1}/{max_retries}: {e}")
-            time.sleep(1)
+        # 변경 안 되면 그냥 대기 후 진행
+        print(f"[Yes24] {sort_name} 페이지 변경 감지 실패, 5초 대기 후 진행")
+        time.sleep(5)
+        return True
 
-    return False
+    except Exception as e:
+        print(f"[Yes24] {sort_name} 정렬 실패: {e}")
+        return False
 
 
 def fetch_yes24_products(driver, saved_products, is_first_run):
@@ -200,38 +210,34 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
             if pid not in products:
                 products[pid] = prod
 
-    # 정렬별 URL (각각 새 페이지로 로드)
-    sort_configs = [
-        ("RECENT", "신상품순"),
-        ("REG_DTS", "등록일순"),
-        ("SALE_SCO", "판매량순"),
-    ]
-
-    base_url = "https://www.yes24.com/Product/Category/Display/003001033001"
-
     try:
-        for sort_value, sort_name in sort_configs:
-            # 각 정렬별로 새 페이지 로드 (48개씩)
-            sort_url = f"{base_url}?sortOrder={sort_value}&viewCount=48"
-            print(f"[Yes24] {sort_name} 페이지 로드 중...")
-            driver.get(sort_url)
+        url = SITES["yes24"]["url"]
+        print(f"[Yes24] 페이지 로드 중...")
+        driver.get(url)
 
-            try:
-                WebDriverWait(driver, 15).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-                )
-                time.sleep(2)
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+        )
+        time.sleep(2)
 
-                # 스크롤해서 더 많은 상품 로드
-                for _ in range(2):
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(1)
+        # 1. 신상품순 정렬
+        if click_sort_and_wait(driver, "RECENT", "신상품순"):
+            recent_products = parse_products_from_page()
+            process_products(recent_products, "신상품순")
 
-                page_products = parse_products_from_page()
-                process_products(page_products, sort_name)
+        # 2. 등록일순 정렬
+        if click_sort_and_wait(driver, "REG_DTS", "등록일순"):
+            # 스크롤해서 더 많은 상품 로드
+            for _ in range(3):
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(1)
+            new_products = parse_products_from_page()
+            process_products(new_products, "등록일순")
 
-            except TimeoutException:
-                print(f"[Yes24] {sort_name} 페이지 로드 실패")
+        # 3. 판매량순 정렬 (재입고 체크용)
+        if click_sort_and_wait(driver, "SALE_SCO", "판매량순"):
+            sale_products = parse_products_from_page()
+            process_products(sale_products, "판매량순")
 
         return products
 
