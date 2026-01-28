@@ -209,6 +209,17 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
             EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
         )
 
+        # 48개씩 보기로 변경
+        try:
+            driver.execute_script("""
+                var btn = document.querySelector("a[data-search-value='48']");
+                if (btn) btn.click();
+            """)
+            time.sleep(3)
+            print("[Yes24] 48개씩 보기로 변경")
+        except:
+            print("[Yes24] 48개씩 보기 변경 실패")
+
         # 1. 신상품순 정렬
         print(f"[Yes24] 신상품순 정렬...")
         if click_sort_button_with_retry(driver, "RECENT"):
@@ -220,6 +231,10 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
         # 2. 등록일순 정렬
         print(f"[Yes24] 등록일순 정렬...")
         if click_sort_button_with_retry(driver, "REG_DTS"):
+            # 스크롤해서 더 많은 상품 로드
+            for _ in range(2):
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(1)
             new_products = parse_products_from_page()
             process_products(new_products, "등록일순")
         else:
