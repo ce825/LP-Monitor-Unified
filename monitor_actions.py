@@ -200,53 +200,38 @@ def fetch_yes24_products(driver, saved_products, is_first_run):
             if pid not in products:
                 products[pid] = prod
 
+    # 정렬별 URL (각각 새 페이지로 로드)
+    sort_configs = [
+        ("RECENT", "신상품순"),
+        ("REG_DTS", "등록일순"),
+        ("SALE_SCO", "판매량순"),
+    ]
+
+    base_url = "https://www.yes24.com/Product/Category/Display/003001033001"
+
     try:
-        url = SITES["yes24"]["url"]
-        print(f"[Yes24] 페이지 로드 중...")
-        driver.get(url)
+        for sort_value, sort_name in sort_configs:
+            # 각 정렬별로 새 페이지 로드 (48개씩)
+            sort_url = f"{base_url}?sortOrder={sort_value}&viewCount=48"
+            print(f"[Yes24] {sort_name} 페이지 로드 중...")
+            driver.get(sort_url)
 
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
-        )
+            try:
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "li[data-goods-no]"))
+                )
+                time.sleep(2)
 
-        # 48개씩 보기로 변경
-        try:
-            driver.execute_script("""
-                var btn = document.querySelector("a[data-search-value='48']");
-                if (btn) btn.click();
-            """)
-            time.sleep(3)
-            print("[Yes24] 48개씩 보기로 변경")
-        except:
-            print("[Yes24] 48개씩 보기 변경 실패")
+                # 스크롤해서 더 많은 상품 로드
+                for _ in range(2):
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(1)
 
-        # 1. 신상품순 정렬
-        print(f"[Yes24] 신상품순 정렬...")
-        if click_sort_button_with_retry(driver, "RECENT"):
-            recent_products = parse_products_from_page()
-            process_products(recent_products, "신상품순")
-        else:
-            print("[Yes24] 신상품순 정렬 실패")
+                page_products = parse_products_from_page()
+                process_products(page_products, sort_name)
 
-        # 2. 등록일순 정렬
-        print(f"[Yes24] 등록일순 정렬...")
-        if click_sort_button_with_retry(driver, "REG_DTS"):
-            # 스크롤해서 더 많은 상품 로드
-            for _ in range(2):
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(1)
-            new_products = parse_products_from_page()
-            process_products(new_products, "등록일순")
-        else:
-            print("[Yes24] 등록일순 정렬 실패")
-
-        # 3. 판매량순 정렬 (재입고 체크용)
-        print(f"[Yes24] 판매량순 정렬...")
-        if click_sort_button_with_retry(driver, "SALE_SCO"):
-            sale_products = parse_products_from_page()
-            process_products(sale_products, "판매량순")
-        else:
-            print("[Yes24] 판매량순 정렬 실패")
+            except TimeoutException:
+                print(f"[Yes24] {sort_name} 페이지 로드 실패")
 
         return products
 
