@@ -55,6 +55,21 @@ DISCORD_WEBHOOK_RESTOCK = os.environ.get(
 
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "products.json")
 
+# 재입고 알림 제외 상품 (상품 ID 또는 제목 키워드)
+RESTOCK_EXCLUDE = {
+    "ids": {
+        "153151430",  # Yes24 - 브라운 아이드 소울 Soul Tricycle 블루 컬러 2LP
+        "167465825",  # Yes24 - 브라운 아이드 소울 Soul Tricycle 2LP
+        "378968965",  # Aladin - 브라운 아이드 소울 Soul Tricycle 2LP
+        "152687",     # Ktown4u - 브라운 아이드 소울 Soul Tricycle 2LP
+    },
+    "keywords": [
+        "브라운 아이드 소울",
+        "Brown Eyed Soul",
+        "Soul Tricycle",
+    ]
+}
+
 
 def load_saved_products():
     """저장된 상품 목록 불러오기"""
@@ -527,6 +542,16 @@ def send_new_product_notification(site_key, new_products):
             print(f"[{datetime.now()}] [{site['name']}] Discord 전송 오류: {e}")
 
 
+def is_restock_excluded(product_id, title):
+    """재입고 알림 제외 대상인지 확인"""
+    if product_id in RESTOCK_EXCLUDE["ids"]:
+        return True
+    for keyword in RESTOCK_EXCLUDE["keywords"]:
+        if keyword.lower() in title.lower():
+            return True
+    return False
+
+
 def send_restock_notification(site_key, restocked_products):
     """재입고 알림 전송"""
     if not DISCORD_WEBHOOK_RESTOCK or "YOUR_" in DISCORD_WEBHOOK_RESTOCK:
@@ -536,6 +561,10 @@ def send_restock_notification(site_key, restocked_products):
     site = SITES[site_key]
 
     for product_id, product in restocked_products.items():
+        # 제외 대상 확인
+        if is_restock_excluded(product_id, product.get("title", "")):
+            print(f"[{datetime.now()}] [{site['name']}] 재입고 알림 제외: {product['title'][:50]}")
+            continue
         embed = {
             "embeds": [
                 {
