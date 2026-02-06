@@ -62,11 +62,16 @@ RESTOCK_EXCLUDE = {
         "167465825",  # Yes24 - 브라운 아이드 소울 Soul Tricycle 2LP
         "378968965",  # Aladin - 브라운 아이드 소울 Soul Tricycle 2LP
         "152687",     # Ktown4u - 브라운 아이드 소울 Soul Tricycle 2LP
+        "154936022",  # Yes24 - Mark Tuan Silhouette LP
+        "373080976",  # Aladin - Mark Tuan Silhouette LP
+        "148039",     # Ktown4u - Mark Tuan Silhouette LP
     },
     "keywords": [
         "브라운 아이드 소울",
         "Brown Eyed Soul",
         "Soul Tricycle",
+        "Mark Tuan",
+        "Silhouette",
     ]
 }
 
