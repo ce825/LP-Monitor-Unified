@@ -30,11 +30,11 @@ jobs:
         run: pip install requests beautifulsoup4 selenium
 
       - name: Restore product cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: products.json
-          key: products-${{ github.run_id }}
-          restore-keys: products-
+          key: lp-products-cache
+          restore-keys: lp-products-
 
       - name: Run monitor
         uses: nick-fields/retry@v3
@@ -47,9 +47,17 @@ jobs:
           DISCORD_WEBHOOK_NEW: ${{ secrets.DISCORD_WEBHOOK_NEW }}
           DISCORD_WEBHOOK_RESTOCK: ${{ secrets.DISCORD_WEBHOOK_RESTOCK }}
 
+      - name: Delete old cache
+        if: always()
+        continue-on-error: true
+        run: |
+          gh cache delete lp-products-cache || true
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Save product cache
         uses: actions/cache/save@v4
         if: always()
         with:
           path: products.json
-          key: products-${{ github.run_id }}
+          key: lp-products-cache
