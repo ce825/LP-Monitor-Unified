@@ -308,9 +308,23 @@ def fetch_aladin_products(saved_products, is_first_run):
                     img_url = img_tag.get("src", "")
                     img_url = img_url.replace("coversum", "cover200")
 
-                # 품절 여부 확인
+                # 품절 여부 확인 (다양한 방식으로 체크)
                 box_text = box.get_text()
-                is_soldout = "품절" in box_text or "절판" in box_text
+                box_html = str(box).lower()
+                is_soldout = (
+                    "품절" in box_text
+                    or "절판" in box_text
+                    or "일시품절" in box_text
+                    or "구매불가" in box_text
+                    or "재입고 알림" in box_text  # 재입고 알림 버튼이 있으면 품절
+                    or "soldout" in box_html
+                    or "sold_out" in box_html
+                    or "sold-out" in box_html
+                    or box.select_one('[class*="soldout"]') is not None
+                    or box.select_one('[class*="품절"]') is not None
+                    or box.select_one('img[alt*="품절"]') is not None
+                    or box.select_one('img[src*="soldout"]') is not None
+                )
 
                 if product_id and title:
                     page_products[product_id] = {
@@ -354,6 +368,7 @@ def fetch_aladin_products(saved_products, is_first_run):
                     if pid not in site_saved and pid not in products:
                         send_new_product_notification(site_key, {pid: prod})
                     elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                        print(f"[알라딘] 재입고 감지: {prod['title'][:30]} (저장: soldout=True, 현재: soldout=False)")
                         send_restock_notification(site_key, {pid: prod})
 
             products.update(release_products)
@@ -373,6 +388,7 @@ def fetch_aladin_products(saved_products, is_first_run):
                     if pid not in site_saved and pid not in products:
                         send_new_product_notification(site_key, {pid: prod})
                     elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                        print(f"[알라딘] 재입고 감지: {prod['title'][:30]} (저장: soldout=True, 현재: soldout=False)")
                         send_restock_notification(site_key, {pid: prod})
 
             for pid, prod in register_products.items():
@@ -397,6 +413,7 @@ def fetch_aladin_products(saved_products, is_first_run):
                         if pid not in site_saved and pid not in products:
                             send_new_product_notification(site_key, {pid: prod})
                         elif pid in site_saved and site_saved[pid].get("soldout") and not prod.get("soldout"):
+                            print(f"[알라딘] 재입고 감지: {prod['title'][:30]} (저장: soldout=True, 현재: soldout=False)")
                             send_restock_notification(site_key, {pid: prod})
 
                 for pid, prod in review_products.items():
