@@ -285,7 +285,30 @@ def fetch_aladin_products(saved_products, is_first_run):
         soup = BeautifulSoup(html, "html.parser")
         page_products = {}
 
-        for box in soup.select("div.ss_book_box"):
+        # 방법 1: ss_book_box (책 카테고리)
+        boxes = soup.select("div.ss_book_box")
+
+        # 방법 2: ss_book_box가 없으면 ItemId 링크를 기준으로 파싱 (음악 카테고리)
+        if not boxes:
+            # 모든 ItemId 링크를 찾아서 부모 요소를 box로 사용
+            item_links = soup.select('a[href*="ItemId="]')
+            seen_ids = set()
+            for link in item_links:
+                href = link.get("href", "")
+                match = re.search(r"ItemId=(\d+)", href)
+                if match and match.group(1) not in seen_ids:
+                    seen_ids.add(match.group(1))
+                    # 부모를 3-5단계 올라가서 상품 컨테이너 찾기
+                    parent = link
+                    for _ in range(5):
+                        if parent.parent:
+                            parent = parent.parent
+                            # 텍스트가 충분히 많으면 상품 컨테이너로 간주
+                            if len(parent.get_text()) > 50:
+                                break
+                    boxes.append(parent)
+
+        for box in boxes:
             try:
                 title_link = box.select_one("a.bo3")
                 if not title_link:
@@ -300,10 +323,18 @@ def fetch_aladin_products(saved_products, is_first_run):
                     continue
 
                 product_id = match.group(1)
+                if product_id in page_products:
+                    continue
+
                 title = title_link.get_text(strip=True)
 
                 price_tag = box.select_one("span.ss_p2")
                 price = price_tag.get_text(strip=True) if price_tag else ""
+                # 가격이 없으면 다른 방식으로 찾기
+                if not price:
+                    price_match = re.search(r"(\d{1,3}(?:,\d{3})*)\s*원", box.get_text())
+                    if price_match:
+                        price = price_match.group(1) + "원"
 
                 img_tag = box.select_one('img[src*="image.aladin.co.kr"]')
                 img_url = ""
@@ -320,6 +351,7 @@ def fetch_aladin_products(saved_products, is_first_run):
                     or "일시품절" in box_text
                     or "구매불가" in box_text
                     or "재입고 알림" in box_text  # 재입고 알림 버튼이 있으면 품절
+                    or "유통이 중단" in box_text  # 유통 중단 메시지
                     or "soldout" in box_html
                     or "sold_out" in box_html
                     or "sold-out" in box_html
