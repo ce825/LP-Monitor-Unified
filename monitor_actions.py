@@ -56,6 +56,8 @@ RESTOCK_EXCLUDE = {
         "154936022",  # Yes24 - Mark Tuan Silhouette LP
         "373080976",  # Aladin - Mark Tuan Silhouette LP
         "148039",     # Ktown4u - Mark Tuan Silhouette LP
+        "386044574",  # Aladin - 터치드 TOUCHED GSI Edition LP
+        "386043641",  # Aladin - 김수영 Antiguo Trunk LP
     },
     "keywords": [
         "브라운 아이드 소울",
@@ -63,6 +65,7 @@ RESTOCK_EXCLUDE = {
         "Soul Tricycle",
         "Mark Tuan",
         "Silhouette",
+        "GSI Edition",  # GSI 에디션 LP (품절 감지 문제)
     ]
 }
 
