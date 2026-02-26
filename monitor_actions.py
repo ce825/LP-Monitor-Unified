@@ -58,6 +58,7 @@ RESTOCK_EXCLUDE = {
         "148039",     # Ktown4u - Mark Tuan Silhouette LP
         "386044574",  # Aladin - 터치드 TOUCHED GSI Edition LP
         "386043641",  # Aladin - 김수영 Antiguo Trunk LP
+        "384368363",  # Aladin - 김현철 VOL.1 LP
     },
     "keywords": [
         "브라운 아이드 소울",
