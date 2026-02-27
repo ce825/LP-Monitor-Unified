@@ -59,6 +59,7 @@ RESTOCK_EXCLUDE = {
         "386044574",  # Aladin - 터치드 TOUCHED GSI Edition LP
         "386043641",  # Aladin - 김수영 Antiguo Trunk LP
         "384368363",  # Aladin - 김현철 VOL.1 LP
+        "384368953",  # Aladin - 김현철 VOL.1 골드 마블 컬러 LP
     },
     "keywords": [
         "브라운 아이드 소울",
