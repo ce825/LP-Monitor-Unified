@@ -60,6 +60,7 @@ RESTOCK_EXCLUDE = {
         "386043641",  # Aladin - 김수영 Antiguo Trunk LP
         "384368363",  # Aladin - 김현철 VOL.1 LP
         "384368953",  # Aladin - 김현철 VOL.1 골드 마블 컬러 LP
+        "386060891",  # Aladin - 권나무 삶의 향기 2LP
     },
     "keywords": [
         "브라운 아이드 소울",
