@@ -70,6 +70,7 @@ RESTOCK_EXCLUDE = {
         "Silhouette",
         "GSI Edition",  # GSI 에디션 LP (품절 감지 문제)
         "UXLXVE",       # 엑스러브 미니 1집
+        "Flower of the Day",  # 우예린 Flower of the Day & Night LP
     ]
 }
 
